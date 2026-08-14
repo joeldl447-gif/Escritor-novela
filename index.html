@@ -933,19 +933,69 @@ function exportBackup(){
 async function importDocx(file){
   if(!file)return;
   try{
-    if(!window.mammoth)await new Promise((res,rej)=>{let s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js";s.onload=res;s.onerror=rej;document.head.appendChild(s)});
-    let r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()}),d=document.createElement("div");d.innerHTML=r.value;
-    let chapters=[],cur=null;
-    [...d.children].forEach(el=>{
-      let t=el.innerText.trim(),heading=/^h[1-3]$/i.test(el.tagName)||/^cap[ií]tulo\\b/i.test(t);
-      if(heading){cur={name:t,html:"",notes:{}};chapters.push(cur)}
-      else if(t){if(!cur){cur={name:"Capítulo 1",html:"",notes:{}};chapters.push(cur)}cur.html+=el.outerHTML}
+    if(!window.mammoth)await new Promise((res,rej)=>{
+      let s=document.createElement("script");
+      s.src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js";
+      s.onload=res;s.onerror=rej;document.head.appendChild(s)
     });
-    if(!chapters.length)throw Error("Sin contenido");
-    state.chapters=chapters;state.current=0;state.title=file.name.replace(/\\.docx$/i,"")||"Mi novela";state.history={};
-    localStorage.setItem(KEY,JSON.stringify(state));load();alert("Word importado: "+chapters.length+" capítulo(s).");
-  }catch(e){alert("No se pudo importar el Word. Usá un archivo .docx válido.")}
+    let r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
+    let d=document.createElement("div");d.innerHTML=r.value;
+    let imported=[],cur=null;
+
+    [...d.children].forEach(el=>{
+      let t=el.innerText.trim();
+      if(!t)return;
+      let heading=/^h[1-3]$/i.test(el.tagName)||/^cap[ií]tulo\b/i.test(t);
+      if(heading){
+        cur={name:t,html:"",notes:{}};
+        imported.push(cur);
+      }else{
+        if(!cur){
+          cur={name:file.name.replace(/\.docx$/i,"")||"Capítulo importado",html:"",notes:{}};
+          imported.push(cur);
+        }
+        cur.html+=el.outerHTML;
+      }
+    });
+
+    if(!imported.length)throw Error("Sin contenido");
+
+    /*
+      IMPORTACIÓN ACUMULATIVA:
+      - Nunca reemplaza los capítulos existentes.
+      - Cada Word importado se agrega al final.
+      - Si el Word contiene varios capítulos, todos se agregan.
+      - Los nombres duplicados se conservan; después podremos ofrecer
+        detección de duplicados como función opcional.
+    */
+    const existingCount=state.chapters.length;
+    const hadOnlyEmptyStarter=
+      existingCount===1 &&
+      state.chapters[0].name==="Capítulo 1" &&
+      !textOf(state.chapters[0].html).trim();
+
+    if(hadOnlyEmptyStarter){
+      state.chapters=imported;
+    }else{
+      state.chapters.push(...imported);
+    }
+
+    state.current=hadOnlyEmptyStarter?0:state.chapters.length-imported.length;
+    state.history={};
+    localStorage.setItem(KEY,JSON.stringify(state));
+    load();
+
+    alert(
+      "Importación completada.\n\n"+
+      "Se agregaron "+imported.length+" capítulo(s).\n"+
+      "Los capítulos que ya tenías no fueron eliminados."
+    );
+  }catch(e){
+    console.error(e);
+    alert("No se pudo importar el Word. Usá un archivo .docx válido.");
+  }
 }
+
 async function exportDocx(){
   save();let body='<w:p><w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>'+esc(state.title)+'</w:t></w:r></w:p>';
   state.chapters.forEach(c=>{
