@@ -43,6 +43,25 @@ body.night .muted,body.night #stats{color:#aaa}
 #side{width:100%;position:fixed;bottom:0;left:0;right:0;border:0;border-top:1px solid #ddd;z-index:20;transform:translateY(100%);transition:.2s}.notes-open #side{transform:translateY(0)}
 #editor{padding-bottom:260px}#toolbar{top:58px}}
 
+
+/* V5 */
+#library{display:none;position:fixed;inset:58px 0 0 0;background:#fff;z-index:25;overflow:auto;padding:20px}
+.library-open #library{display:block}
+.library-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;max-width:1000px;margin:auto}
+.library-card{border:1px solid #ddd;border-radius:10px;padding:15px;background:#fafafa}
+.library-card h3{margin:0 0 7px}
+.night #library{background:#111;color:#eee}.night .library-card{background:#1c1c1c;border-color:#333}
+#searchPanel{display:none;position:fixed;inset:58px 0 0 0;background:#fff;z-index:26;overflow:auto;padding:20px}
+.search-open #searchPanel{display:block}
+.night #searchPanel{background:#111;color:#eee}
+.search-result{padding:12px;border-bottom:1px solid #ddd;cursor:pointer}
+.night .search-result{border-color:#333}
+#focusExit{display:none;position:fixed;top:10px;right:10px;z-index:50}
+.focus-mode header,.focus-mode #chapters,.focus-mode #toolbar,.focus-mode #side{display:none!important}
+.focus-mode #editor{min-height:100vh;padding:8vh 8vw;font-size:22px;max-width:900px;margin:auto}
+.focus-mode #editorWrap{width:100%}
+.focus-mode #focusExit{display:block}
+@media(max-width:800px){#library,#searchPanel{padding:14px}}
 </style>
 </head>
 <body>
@@ -50,10 +69,24 @@ body.night .muted,body.night #stats{color:#aaa}
 <button class="icon" onclick="toggleChapters()">☰</button>
 <input id="title" value="Mi novela" aria-label="Nombre del proyecto">
 <button onclick="document.getElementById('wordFile').click()">Importar Word</button>
-<button onclick="exportDocx()">Exportar Word</button><button onclick="toggleNight()" title="Modo de lectura nocturna">☾</button>
+<button onclick="openLibrary()">Biblioteca</button><button onclick="openSearch()">Buscar</button><button onclick="toggleFocus()">Concentración</button><button onclick="exportBackup()">Copia</button><button onclick="exportDocx()">Word</button><button onclick="toggleNight()" title="Modo de lectura nocturna">☾</button>
 <button class="icon" onclick="toggleNotes()">📝</button>
 <input id="wordFile" type="file" accept=".docx" hidden onchange="importDocx(this.files[0])">
 </header>
+
+<button id="focusExit" onclick="toggleFocus()">Salir de concentración</button>
+<section id="library">
+  <div style="max-width:1000px;margin:auto;display:flex;align-items:center;gap:8px">
+    <h2 style="flex:1">Biblioteca de la novela</h2><button onclick="closeLibrary()">Cerrar</button>
+  </div>
+  <div id="libraryContent" class="library-grid"></div>
+</section>
+<section id="searchPanel">
+  <div style="max-width:1000px;margin:auto">
+    <div style="display:flex;gap:8px"><input id="globalSearch" style="flex:1;padding:11px;border:1px solid #ccc;border-radius:8px;font-size:16px" placeholder="Buscar en toda la novela..." oninput="runSearch()"><button onclick="closeSearch()">Cerrar</button></div>
+    <div id="searchResults" style="margin-top:15px"></div>
+  </div>
+</section>
 <main>
 <aside id="chapters">
 <div style="display:flex;align-items:center;gap:8px"><h3 style="flex:1">CAPÍTULOS</h3><button onclick="newChapter()">＋</button><button onclick="toggleChapters()">×</button></div><button style="width:100%;margin-bottom:10px" onclick="document.getElementById('wordFile').click()">Importar Word (.docx)</button>
@@ -84,7 +117,15 @@ let state=JSON.parse(localStorage.getItem(KEY)||"null")||{
 };
 let selected=null;
 const $=id=>document.getElementById(id);
-function save(){state.title=$("title").value;state.chapters[state.current].html=$("editor").innerHTML;localStorage.setItem(KEY,JSON.stringify(state));renderChapters();stats()}
+function save(){
+  state.title=$("title").value;
+  state.chapters[state.current].html=$("editor").innerHTML;
+  state.history[state.current]=state.history[state.current]||[];
+  let snapshot=state.chapters[state.current].html;
+  let h=state.history[state.current];
+  if(!h.length || h[h.length-1]!==snapshot){h.push(snapshot);if(h.length>20)h.shift()}
+  localStorage.setItem(KEY,JSON.stringify(state));renderChapters();stats()
+}
 function load(){ $("title").value=state.title; $("editor").innerHTML=state.chapters[state.current].html; bindParagraphs(); stats(); renderChapters()}
 function renderChapters(){let box=$("chapterList");box.innerHTML="";state.chapters.forEach((c,i)=>{
 let d=document.createElement("div");d.className="chapter"+(i===state.current?" active":"");d.style.display="flex";d.style.alignItems="center";d.style.gap="6px";
@@ -92,7 +133,12 @@ let name=document.createElement("span");name.textContent=c.name;name.style.flex=
 let del=document.createElement("button");del.textContent="🗑";del.title="Eliminar capítulo";del.style.padding="5px 7px";del.onclick=e=>{e.stopPropagation();deleteChapter(i)};
 d.appendChild(name);d.appendChild(del);box.appendChild(d)})}
 function bindParagraphs(){document.querySelectorAll("#editor p").forEach((p,i)=>{p.onclick=e=>{e.stopPropagation();selected=i;document.querySelectorAll("#editor p").forEach(x=>x.classList.remove("selected"));p.classList.add("selected");let n=state.chapters[state.current].notes||{};$("noteText").value=n[i]||"";$("selectedLabel").textContent="Párrafo "+(i+1);document.body.classList.add("notes-open")}})}
-function stats(){let text=$("editor").innerText.trim();let words=text?text.split(/\s+/).length:0;$("stats").textContent=words+" palabras"}
+function stats(){
+ let text=$("editor").innerText.trim(),words=text?text.split(/\s+/).length:0;
+ let all=state.chapters.map(c=>textOf(c.html)).join(" ").trim(),allWords=all?all.split(/\s+/).length:0;
+ $("stats").textContent=words+" palabras · novela: "+allWords;
+}
+function totalNotes(){return state.chapters.reduce((n,c)=>n+Object.values(c.notes||{}).filter(Boolean).length,0)}
 $("editor").addEventListener("input",()=>{bindParagraphs();save()});
 $("title").addEventListener("input",save);
 function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
