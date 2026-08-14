@@ -1,7 +1,6 @@
 {
   "name": "Escritor — Novela",
   "short_name": "Escritor",
-  "description": "Editor para escribir novelas con capítulos y notas por párrafo.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
