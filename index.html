@@ -91,7 +91,8 @@ body.night #appMenu .menu-title{border-color:#333}
 .night .ai-status{color:#aaa}
 @media(max-width:800px){
  #aiPanel{inset:58px 0 0}
- #aiSettings{display:none}
+ #aiSettings{display:none;position:fixed;inset:58px 0 0;width:100%;background:#fff;z-index:130;border-left:0;padding:18px}
+ #aiSettings.mobile-open{display:block}
  .ai-msg{margin-left:4px;margin-right:4px}
 }
 </style>
@@ -100,7 +101,7 @@ body.night #appMenu .menu-title{border-color:#333}
 <header>
   <button class="icon" onclick="toggleAppMenu()">☰</button>
   <input id="title" value="Mi novela" aria-label="Nombre del proyecto">
-  <button class="icon" onclick="toggleNotes()">📝</button>
+  <button class="icon" onclick="toggleNotes()">📝</button><button class="icon" onclick="toggleAISettings()" title="Configurar IA">⚙️</button>
   <input id="wordFile" type="file" accept=".docx" hidden onchange="importDocx(this.files[0])">
 </header>
 
@@ -144,7 +145,7 @@ body.night #appMenu .menu-title{border-color:#333}
       <button class="icon" onclick="closeAI()">←</button>
       <h2>Asistente de tu novela</h2>
       <span id="aiStatus" class="ai-status">Configurá tu IA</span>
-      <button onclick="speakLast()">🔊</button>
+      <button onclick="toggleAISettings()">⚙️</button><button onclick="speakLast()">🔊</button>
     </div>
     <div id="aiChat">
       <div id="aiWelcome">
@@ -164,7 +165,7 @@ body.night #appMenu .menu-title{border-color:#333}
     </div>
   </div>
   <aside id="aiSettings">
-    <h3>Configuración</h3>
+    <h3>⚙️ Configurar IA</h3><p class="ai-status">Acá pegás tu clave de API. No me la mandes por el chat.</p>
     <label>Clave de API</label>
     <input id="aiKey" type="password" placeholder="sk-..." autocomplete="off">
     <label>Modelo</label>
@@ -340,6 +341,13 @@ const AIMODEL="escritor_ai_model";
 let lastAIResponse="";
 let recognition=null;
 
+function toggleAISettings(){
+  const s=$("aiSettings");
+  if(window.innerWidth<=800)s.classList.toggle("mobile-open");
+  else s.style.display=(s.style.display==="none"?"block":"");
+  $("aiKey").value=localStorage.getItem(AIKEY)||"";
+  $("aiModel").value=localStorage.getItem(AIMODEL)||"gpt-5.4";
+}
 function openAI(){
   document.body.classList.add("ai-open");
   $("aiKey").value=localStorage.getItem(AIKEY)||"";
@@ -351,6 +359,7 @@ function saveAISettings(){
   localStorage.setItem(AIKEY,$("aiKey").value.trim());
   localStorage.setItem(AIMODEL,$("aiModel").value.trim()||"gpt-5.4");
   updateAIStatus();
+  if(window.innerWidth<=800)$("aiSettings").classList.remove("mobile-open");
 }
 function updateAIStatus(){
   let ok=!!localStorage.getItem(AIKEY);
