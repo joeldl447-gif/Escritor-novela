@@ -1,6 +1,1 @@
-V15 — IMPORTACIÓN ACUMULATIVA DE WORD
-- Importar Word ya no reemplaza los capítulos existentes.
-- Cada archivo Word se agrega al final.
-- Si un Word contiene varios capítulos, todos se agregan.
-- Si existe el capítulo inicial vacío predeterminado, se reemplaza por el contenido importado.
-- Se conservan los capítulos y notas existentes.
+V16: IA local con fallback WebGPU/WASM; mensajes claros para errores de red/memoria; análisis interactivo con salto al párrafo, confirmar/ignorar personajes y detección de nombres más conservadora. Mantiene importación acumulativa de Word.

@@ -140,6 +140,12 @@ body.night #appMenu .menu-title{border-color:#333}
 .night .analysis-card{background:#202020;border-color:#444}
 .night .analysis-item{border-color:#333}
 .night .analysis-tag{background:#333}
+
+.analysis-click{cursor:pointer}.analysis-click:hover{text-decoration:underline}
+.analysis-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.analysis-actions button{font-size:13px;padding:6px 9px}
+.analysis-detail{margin-top:7px;padding:8px;border-radius:8px;background:#eee;font-size:13px;display:none}
+.analysis-detail.open{display:block}.night .analysis-detail{background:#303030}
 </style>
 </head>
 <body>
@@ -504,28 +510,44 @@ function localSearchAnswer(q){
   return null;
 }
 async function loadLocalAI(){
-  if(localGenerator)return;
-  if(localLoading)return;
-  localLoading=true;$("localAIProgress").textContent="Descargando y preparando el modelo… puede ocupar cientos de MB la primera vez.";
+  if(localGenerator||localLoading)return;
+  localLoading=true;
+  $("localAIProgress").textContent="Conectando con el modelo gratuito…";
   try{
     const {pipeline,env}=await getTransformers();
-    env.useBrowserCache=true;
-    env.allowRemoteModels=true;
-    let device=navigator.gpu?"webgpu":"wasm";
-    localGenerator=await pipeline("text-generation",LOCAL_MODEL,{
-      device,
-      dtype:"q4",
-      progress_callback:(p)=>{
-        if(p?.progress!=null)$("localAIProgress").textContent="Preparando IA: "+Math.round(p.progress)+"%";
-        else if(p?.status)$("localAIProgress").textContent="IA: "+p.status;
-      }
-    });
-    $("localAIProgress").textContent="IA local lista. El modelo queda en la caché del navegador.";
+    env.useBrowserCache=true; env.allowRemoteModels=true;
+    const attempts=[];
+    if(navigator.gpu)attempts.push({device:"webgpu",dtype:"q4f16"});
+    attempts.push({device:"wasm",dtype:"q4"});
+    if(navigator.gpu)attempts.push({device:"webgpu",dtype:"q4"});
+    let lastError=null;
+    for(const opt of attempts){
+      try{
+        $("localAIProgress").textContent="Preparando IA local ("+opt.device+")… La primera vez puede descargar unos 500 MB.";
+        localGenerator=await pipeline("text-generation",LOCAL_MODEL,{
+          device:opt.device,dtype:opt.dtype,
+          progress_callback:p=>{
+            if(p?.progress!=null)$("localAIProgress").textContent="Descargando IA: "+Math.round(p.progress)+"%";
+            else if(p?.status)$("localAIProgress").textContent="IA: "+p.status;
+          }
+        });
+        break;
+      }catch(err){lastError=err;localGenerator=null;}
+    }
+    if(!localGenerator)throw lastError||new Error("No se pudo inicializar el modelo");
+    $("localAIProgress").textContent="IA local lista. Quedará guardada en la caché del navegador.";
     updateAIStatus();
   }catch(e){
     localGenerator=null;
-    $("localAIProgress").textContent="No se pudo cargar la IA local: "+e.message;
-    alert("No se pudo cargar la IA local. Podés seguir usando la voz y las búsquedas sin IA.");
+    const msg=String(e?.message||e).toLowerCase();
+    let explanation="No se pudo cargar la IA local.";
+    if(msg.includes("network")||msg.includes("fetch")||msg.includes("failed to fetch"))
+      explanation="No se pudo descargar el modelo. Revisá la conexión y volvé a tocar «Preparar IA local».";
+    else if(msg.includes("memory")||msg.includes("allocation")||msg.includes("out of memory"))
+      explanation="El teléfono no tiene memoria suficiente para cargar el modelo. La voz y las búsquedas siguen funcionando.";
+    else explanation+=" "+(e?.message||"Error desconocido.");
+    $("localAIProgress").textContent=explanation;
+    alert(explanation);
   }finally{localLoading=false}
 }
 async function sendAI(){
@@ -836,13 +858,17 @@ function analyzeTextLocally(){
         }
       });
 
-      // Conservative automatic extraction of likely proper names:
-      // capitalized multiword/single names that are not sentence starts.
+      // Detección conservadora: evitamos palabras de diálogo y solo
+      // proponemos nombres que se repiten o tienen formato de nombre completo.
       const matches=t.match(/(?<!^)(?<![.!?]\s)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})?/g)||[];
       matches.forEach(name=>{
         const clean=name.trim().replace(/[,:;.!?]+$/,"");
-        if(!/^(El|La|Los|Las|Un|Una|Una|Capítulo|Después|Entonces|Pero|Porque|Cuando|Como|Mientras)$/i.test(clean)
-          && !knownPlaceNames.some(x=>normalize(x)===normalize(clean))){
+        const stop=/^(El|La|Los|Las|Un|Una|Capítulo|Después|Entonces|Pero|Porque|Cuando|Como|Mientras|Dijo|Dice|Mira|Qué|Esto|Eso|Bueno|Gracias|Hola|Jajaja|Cállate)$/i;
+        const fullName=/^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}$/;
+        const occurrences=state.chapters.reduce((n,ch)=>n+(normalize(textOf(ch.html)).split(normalize(clean)).length-1),0);
+        if(!stop.test(clean)&&(fullName.test(clean)||occurrences>=2)&&
+          !knownPlaceNames.some(x=>normalize(x)===normalize(clean))&&
+          !knownCharNames.some(x=>normalize(x)===normalize(clean))){
           addUnique(entities.characters,{name:clean,source:`${c.name}, párrafo ${pi+1}`,confidence:"posible"},"name");
         }
       });
@@ -895,6 +921,8 @@ function analyzeTextLocally(){
   // Keep unique and bounded data.
   entities.times=entities.times.slice(0,100);
   entities.events=entities.events.slice(0,120);
+  const ignored=JSON.parse(localStorage.getItem("escritor_analysis_ignored")||"[]");
+  entities.characters=entities.characters.filter(x=>!ignored.some(n=>normalize(n)===normalize(x.name)));
   analysisState={entities,relations,issues};
   localStorage.setItem(ANALYSIS_KEY,JSON.stringify(analysisState));
 }
@@ -909,22 +937,49 @@ async function analyzeNovel(){
   // Refresh library and graph so detected entities become visible where possible.
   renderLibrary();
 }
+function analysisJump(source){
+  const m=String(source||"").match(/^(.*?),\s*párrafo\s+(\d+)$/);
+  if(!m)return;
+  const ci=state.chapters.findIndex(c=>c.name===m[1]);
+  if(ci<0)return;
+  state.current=ci;load();closeAnalysis();
+  setTimeout(()=>{
+    const p=document.querySelectorAll("#editor p")[Number(m[2])-1];
+    if(p){p.scrollIntoView({behavior:"smooth",block:"center"});p.style.outline="3px solid #e2a83b";setTimeout(()=>p.style.outline="",1800);}
+  },150);
+}
+function safeJs(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
+function confirmAnalysisName(name){
+  if(!(state.characters||[]).some(x=>normalize(x.name||"")===normalize(name))){
+    state.characters.push({name,desc:"Detectado automáticamente en la novela"});
+    localStorage.setItem(KEY,JSON.stringify(state));
+  }
+  analyzeTextLocally();renderAnalysis();load();
+}
+function ignoreAnalysisName(name){
+  const key="escritor_analysis_ignored",a=JSON.parse(localStorage.getItem(key)||"[]");
+  if(!a.some(x=>normalize(x)===normalize(name)))a.push(name);
+  localStorage.setItem(key,JSON.stringify(a));
+  analyzeTextLocally();renderAnalysis();
+}
+function toggleAnalysisDetail(id){const e=$(id);if(e)e.classList.toggle("open")}
 function renderAnalysis(){
   const r=$("analysisResults");if(!r)return;r.innerHTML="";
   const make=(title,items,fmt)=>{
     const d=document.createElement("div");d.className="analysis-card";
     d.innerHTML="<h3>"+title+"</h3>";
-    if(!items.length){d.innerHTML+="<div class='analysis-muted'>Todavía no hay datos.</div>";}
+    if(!items.length)d.innerHTML+="<div class='analysis-muted'>Todavía no hay datos.</div>";
     else items.slice(0,100).forEach(x=>{let q=document.createElement("div");q.className="analysis-item";q.innerHTML=fmt(x);d.appendChild(q)});
     r.appendChild(d);
   };
-  make("👤 Personajes detectados",analysisState.entities.characters,x=>`<b>${esc(x.name)}</b> <span class="analysis-tag">${esc(x.confidence)}</span><br><span class="analysis-muted">${esc(x.source)}</span>`);
-  make("📍 Lugares detectados",analysisState.entities.places,x=>`<b>${esc(x.name)}</b> <span class="analysis-tag">${esc(x.confidence)}</span><br><span class="analysis-muted">${esc(x.source)}</span>`);
-  make("🎬 Acontecimientos",analysisState.entities.events,x=>`<span>${esc(x.label)}</span><br><span class="analysis-muted">${esc(x.source)}</span>`);
+  make("👤 Personajes detectados",analysisState.entities.characters,x=>`<b class="analysis-click" onclick="analysisJump('${safeJs(x.source)}')">${esc(x.name)}</b> <span class="analysis-tag">${esc(x.confidence)}</span><div class="analysis-muted">${esc(x.source)}</div>${x.confidence==="posible"?`<div class="analysis-actions"><button onclick="confirmAnalysisName('${safeJs(x.name)}')">✓ Confirmar</button><button onclick="ignoreAnalysisName('${safeJs(x.name)}')">Ignorar</button></div>`:""}`);
+  make("📍 Lugares detectados",analysisState.entities.places,x=>`<b class="analysis-click" onclick="analysisJump('${safeJs(x.source)}')">${esc(x.name)}</b> <span class="analysis-tag">${esc(x.confidence)}</span><div class="analysis-muted">${esc(x.source)}</div>`);
+  make("🎬 Acontecimientos",analysisState.entities.events,x=>`<span class="analysis-click" onclick="analysisJump('${safeJs(x.source)}')">${esc(x.label)}</span><br><span class="analysis-muted">${esc(x.source)}</span>`);
   make("🕒 Fechas y horarios",analysisState.entities.times,x=>`<b>${esc(x.value)}</b> — <span class="analysis-muted">${esc(x.source)}</span>`);
   make("🔗 Relaciones detectadas",analysisState.relations,x=>`<b>${esc(x.label)}</b> — <span class="analysis-muted">${esc(x.source)}</span>`);
-  make("⚠️ Posibles incongruencias",analysisState.issues,x=>`<b>${esc(x.title)}</b><br>${esc(x.detail)}<br><span class="analysis-muted">${x.refs.map(y=>esc(y.source)+": "+esc(y.age)+" años").join(" · ")}</span>`);
+  make("⚠️ Posibles incongruencias",analysisState.issues,x=>`<b>${esc(x.title)}</b><br>${esc(x.detail)}<div class="analysis-actions"><button onclick="toggleAnalysisDetail('issue_'+analysisState.issues.indexOf(x))">Ver fragmentos</button></div><div id="issue_${analysisState.issues.indexOf(x)}" class="analysis-detail">${x.refs.map(y=>`<div class="analysis-click" onclick="analysisJump('${safeJs(y.source)}')">${esc(y.source)}: ${esc(y.age)} años</div>`).join("")}</div>`);
 }
+
 
 function exportBackup(){
   save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");
