@@ -146,6 +146,8 @@ body.night #appMenu .menu-title{border-color:#333}
 .analysis-actions button{font-size:13px;padding:6px 9px}
 .analysis-detail{margin-top:7px;padding:8px;border-radius:8px;background:#eee;font-size:13px;display:none}
 .analysis-detail.open{display:block}.night .analysis-detail{background:#303030}
+
+#closeLocalAI{min-width:44px!important;height:44px!important;font-size:24px!important}
 </style>
 </head>
 <body>
@@ -509,7 +511,7 @@ function localSearchAnswer(q){
   }
   return null;
 }
-async function loadLocalAI(){
+function closeLocalAI(){\n  const panel=document.querySelector("#localAIPanel") || document.querySelector(".local-ai-panel");\n  if(panel) panel.style.display="none";\n}\nasync function loadLocalAI(){
   if(localGenerator||localLoading)return;
   localLoading=true;
   $("localAIProgress").textContent="Conectando con el modelo gratuito…";
