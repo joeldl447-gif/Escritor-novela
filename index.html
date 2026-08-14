@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Escritor v3</title>
+<title>Escritor v4</title>
 <link rel="manifest" href="manifest.json">
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f4f5f7;color:#17191c;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -25,6 +25,15 @@ main{display:flex;max-width:1100px;margin:auto;min-height:calc(100vh - 58px)}
 #editor p.selected{background:#fff8d7}
 #side{width:300px;border-left:1px solid #ddd;background:#fafafa;padding:16px}
 #side h3{margin-top:0}
+body.night{background:#111;color:#e7e7e7}
+body.night header{background:#050505}
+body.night #chapters,body.night #editorWrap,body.night #side,body.night #toolbar{background:#181818;color:#e7e7e7;border-color:#333}
+body.night .chapter.active{background:#303030}
+body.night button{background:#303030;color:#eee}
+body.night #editor{color:#e7e7e7}
+body.night #editor p.selected{background:#3a3520}
+body.night #noteText{background:#202020;color:#eee;border-color:#444}
+body.night .muted,body.night #stats{color:#aaa}
 #noteText{width:100%;min-height:180px;border:1px solid #ccc;border-radius:8px;padding:10px;font:15px system-ui;resize:vertical}
 .muted{color:#777;font-size:13px}.hidden{display:none}
 #stats{font-size:12px;color:#777;margin-left:auto}
@@ -41,7 +50,7 @@ main{display:flex;max-width:1100px;margin:auto;min-height:calc(100vh - 58px)}
 <button class="icon" onclick="toggleChapters()">☰</button>
 <input id="title" value="Mi novela" aria-label="Nombre del proyecto">
 <button onclick="document.getElementById('wordFile').click()">Importar Word</button>
-<button onclick="exportDocx()">Exportar Word</button>
+<button onclick="exportDocx()">Exportar Word</button><button onclick="toggleNight()" title="Modo de lectura nocturna">☾</button>
 <button class="icon" onclick="toggleNotes()">📝</button>
 <input id="wordFile" type="file" accept=".docx" hidden onchange="importDocx(this.files[0])">
 </header>
@@ -77,36 +86,11 @@ let selected=null;
 const $=id=>document.getElementById(id);
 function save(){state.title=$("title").value;state.chapters[state.current].html=$("editor").innerHTML;localStorage.setItem(KEY,JSON.stringify(state));renderChapters();stats()}
 function load(){ $("title").value=state.title; $("editor").innerHTML=state.chapters[state.current].html; bindParagraphs(); stats(); renderChapters()}
-function renderChapters(){let box=$("chapterList");box.innerHTML="";state.chapters.forEach((c,i)=>{let d=document.createElement("div");d.className="chapter"+(i===state.current?" active":"");d.textContent=c.name;d.onclick=()=>{save();state.current=i;selected=null;
-function toggleChapters(){document.body.classList.toggle("chapters-open")}
-async function importDocx(file){
-  if(!file)return;
-  try{
-    if(!window.mammoth){
-      await new Promise((resolve,reject)=>{
-        const s=document.createElement("script");
-        s.src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js";
-        s.onload=resolve;s.onerror=reject;document.head.appendChild(s);
-      });
-    }
-    const buf=await file.arrayBuffer();
-    const result=await mammoth.convertToHtml({arrayBuffer:buf});
-    const div=document.createElement("div");div.innerHTML=result.value;
-    const chapters=[]; let current=null;
-    [...div.children].forEach(el=>{
-      const t=el.innerText.trim();
-      const isHeading=/^h[1-3]$/i.test(el.tagName) || /^cap[ií]tulo\b/i.test(t);
-      if(isHeading){current={name:t,html:"",notes:{}};chapters.push(current)}
-      else if(t){if(!current)current={name:"Capítulo 1",html:"",notes:{}};current.html+=el.outerHTML;if(!chapters.includes(current))chapters.push(current)}
-    });
-    if(!chapters.length)throw new Error("Sin contenido");
-    state.chapters=chapters;state.current=0;state.title=file.name.replace(/\.docx$/i,"")||"Mi novela";
-    localStorage.setItem(KEY,JSON.stringify(state));load();
-    alert("Word importado. Se detectaron "+chapters.length+" capítulo(s).");
-  }catch(e){alert("No se pudo importar el Word. Verificá que sea .docx y que tengas Internet durante la importación.")}
-}
-
-load();$("noteText").value=""};box.appendChild(d)})}
+function renderChapters(){let box=$("chapterList");box.innerHTML="";state.chapters.forEach((c,i)=>{
+let d=document.createElement("div");d.className="chapter"+(i===state.current?" active":"");d.style.display="flex";d.style.alignItems="center";d.style.gap="6px";
+let name=document.createElement("span");name.textContent=c.name;name.style.flex="1";name.onclick=()=>{save();state.current=i;selected=null;load();$("noteText").value="";if(window.innerWidth<801)document.body.classList.remove("chapters-open")};
+let del=document.createElement("button");del.textContent="🗑";del.title="Eliminar capítulo";del.style.padding="5px 7px";del.onclick=e=>{e.stopPropagation();deleteChapter(i)};
+d.appendChild(name);d.appendChild(del);box.appendChild(d)})}
 function bindParagraphs(){document.querySelectorAll("#editor p").forEach((p,i)=>{p.onclick=e=>{e.stopPropagation();selected=i;document.querySelectorAll("#editor p").forEach(x=>x.classList.remove("selected"));p.classList.add("selected");let n=state.chapters[state.current].notes||{};$("noteText").value=n[i]||"";$("selectedLabel").textContent="Párrafo "+(i+1);document.body.classList.add("notes-open")}})}
 function stats(){let text=$("editor").innerText.trim();let words=text?text.split(/\s+/).length:0;$("stats").textContent=words+" palabras"}
 $("editor").addEventListener("input",()=>{bindParagraphs();save()});
@@ -159,6 +143,16 @@ class SimpleZip{
 }
 function crc32(bytes){let c=~0;for(let i=0;i<bytes.length;i++){c^=bytes[i];for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return (~c)>>>0}
 
+function toggleNight(){document.body.classList.toggle("night");localStorage.setItem("escritor_night",document.body.classList.contains("night")?"1":"0")}
+function deleteChapter(i){
+ const c=state.chapters[i];
+ if(!confirm('¿Querés eliminar "'+c.name+'"?\\n\\nPrimera confirmación.'))return;
+ if(!confirm('Confirmación final: ¿REALMENTE querés eliminar "'+c.name+'"?\\n\\nEsta acción también eliminará sus notas.'))return;
+ state.chapters.splice(i,1);
+ if(!state.chapters.length)state.chapters.push({name:"Capítulo 1",html:"<p></p>",notes:{}});
+ state.current=Math.min(state.current,state.chapters.length-1);selected=null;
+ localStorage.setItem(KEY,JSON.stringify(state));load();
+}
 function toggleChapters(){document.body.classList.toggle("chapters-open")}
 async function importDocx(file){
   if(!file)return;
