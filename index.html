@@ -67,6 +67,33 @@ body.night #appMenu .menu-title{border-color:#333}
   body.notes-open #side{transform:translateY(0)}
   #editor{padding-bottom:270px}
 }
+
+/* V8 — Asistente IA y voz */
+#aiPanel{display:none;position:fixed;inset:58px 0 0;background:#fff;z-index:110}
+.ai-open #aiPanel{display:flex}
+#aiPanel .ai-main{flex:1;min-width:0;display:flex;flex-direction:column}
+#aiPanel .ai-head{padding:12px 16px;border-bottom:1px solid #ddd;display:flex;align-items:center;gap:8px}
+#aiPanel .ai-head h2{margin:0;flex:1;font-size:18px}
+#aiChat{flex:1;overflow:auto;padding:16px}
+.ai-msg{max-width:860px;margin:0 auto 12px;padding:12px 14px;border-radius:12px;white-space:pre-wrap;line-height:1.5}
+.ai-user{background:#e9eefb}.ai-assistant{background:#f0f0f0}
+.ai-controls{border-top:1px solid #ddd;padding:10px;display:flex;gap:7px;align-items:flex-end}
+#aiInput{flex:1;min-height:48px;max-height:160px;resize:vertical;border:1px solid #ccc;border-radius:9px;padding:10px;font:15px system-ui}
+#aiSettings{width:280px;border-left:1px solid #ddd;padding:14px;overflow:auto}
+#aiSettings input,#aiSettings select{width:100%;padding:9px;margin:5px 0 12px;border:1px solid #ccc;border-radius:8px}
+.ai-chip{font-size:12px;padding:7px 9px;border-radius:20px}
+.ai-status{font-size:12px;color:#777}
+#aiWelcome{max-width:860px;margin:20px auto;color:#666}
+.night #aiPanel{background:#181818;color:#eee}
+.night #aiPanel .ai-head,.night #aiSettings,.night #aiPanel .ai-controls{border-color:#333}
+.night .ai-user{background:#30384d}.night .ai-assistant{background:#252525}
+.night #aiInput,.night #aiSettings input,.night #aiSettings select{background:#202020;color:#eee;border-color:#444}
+.night .ai-status{color:#aaa}
+@media(max-width:800px){
+ #aiPanel{inset:58px 0 0}
+ #aiSettings{display:none}
+ .ai-msg{margin-left:4px;margin-right:4px}
+}
 </style>
 </head>
 <body>
@@ -88,6 +115,7 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="openSearch();closeAppMenu()">🔎 Buscar en la novela</button>
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
+  <button onclick="openAI();closeAppMenu()">🤖 Asistente IA y voz</button>
 </nav>
 
 <section id="library" class="overlayPanel">
@@ -109,6 +137,45 @@ body.night #appMenu .menu-title{border-color:#333}
 
 <button id="focusExit" onclick="toggleFocus()">Salir de concentración</button>
 
+
+<section id="aiPanel">
+  <div class="ai-main">
+    <div class="ai-head">
+      <button class="icon" onclick="closeAI()">←</button>
+      <h2>Asistente de tu novela</h2>
+      <span id="aiStatus" class="ai-status">Configurá tu IA</span>
+      <button onclick="speakLast()">🔊</button>
+    </div>
+    <div id="aiChat">
+      <div id="aiWelcome">
+        <b>Podés hablarme sobre tu novela.</b><br><br>
+        Ejemplos:<br>
+        “Leé el capítulo 2 en voz alta.”<br>
+        “¿Dónde aparece Mabel?”<br>
+        “Compará el capítulo 2 con el 8 y buscá incongruencias.”<br>
+        “¿Qué sabemos de Mabel?”<br>
+        “Continuá esta escena manteniendo el estilo.”
+      </div>
+    </div>
+    <div class="ai-controls">
+      <button class="ai-chip" onclick="startVoiceInput()">🎙️ Hablar</button>
+      <textarea id="aiInput" placeholder="Escribí o hablá con la IA..."></textarea>
+      <button class="ai-chip" onclick="sendAI()">Enviar</button>
+    </div>
+  </div>
+  <aside id="aiSettings">
+    <h3>Configuración</h3>
+    <label>Clave de API</label>
+    <input id="aiKey" type="password" placeholder="sk-..." autocomplete="off">
+    <label>Modelo</label>
+    <input id="aiModel" value="gpt-5.4" placeholder="Modelo de IA">
+    <button onclick="saveAISettings()">Guardar</button>
+    <p class="ai-status">La clave se guarda solamente en este dispositivo. No se sube a GitHub. Para una seguridad máxima, lo ideal es usar un servidor intermedio.</p>
+    <hr>
+    <button onclick="readCurrentChapter()">🔊 Leer capítulo actual</button>
+    <button onclick="stopSpeaking()">⏹ Detener lectura</button>
+  </aside>
+</section>
 <main>
   <aside id="chapters">
     <div style="display:flex;align-items:center;gap:8px">
@@ -267,6 +334,115 @@ function renderEntities(){
 function addCharacter(){let n=prompt("Nombre del personaje:");if(!n)return;state.characters.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
 function addPlace(){let n=prompt("Nombre del lugar:");if(!n)return;state.places.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
 function showAllNotes(){let a=[];state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)a.push(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}));alert(a.length?a.join("\\n\\n"):"No hay notas.")}
+
+const AIKEY="escritor_ai_key";
+const AIMODEL="escritor_ai_model";
+let lastAIResponse="";
+let recognition=null;
+
+function openAI(){
+  document.body.classList.add("ai-open");
+  $("aiKey").value=localStorage.getItem(AIKEY)||"";
+  $("aiModel").value=localStorage.getItem(AIMODEL)||"gpt-5.4";
+  updateAIStatus();
+}
+function closeAI(){document.body.classList.remove("ai-open");stopSpeaking()}
+function saveAISettings(){
+  localStorage.setItem(AIKEY,$("aiKey").value.trim());
+  localStorage.setItem(AIMODEL,$("aiModel").value.trim()||"gpt-5.4");
+  updateAIStatus();
+}
+function updateAIStatus(){
+  let ok=!!localStorage.getItem(AIKEY);
+  $("aiStatus").textContent=ok?"IA configurada":"Falta configurar la IA";
+}
+function addAIMessage(role,text){
+  let d=document.createElement("div");d.className="ai-msg "+(role==="user"?"ai-user":"ai-assistant");d.textContent=text;
+  $("aiChat").appendChild(d);$("aiChat").scrollTop=$("aiChat").scrollHeight;
+}
+function startVoiceInput(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){alert("Este navegador no ofrece reconocimiento de voz. Probá Chrome en Android.");return}
+  if(recognition){recognition.stop();recognition=null;return}
+  recognition=new SR();recognition.lang="es-AR";recognition.interimResults=true;recognition.continuous=false;
+  recognition.onresult=e=>{$("aiInput").value=Array.from(e.results).map(r=>r[0].transcript).join("")};
+  recognition.onerror=e=>{alert("No se pudo usar el micrófono: "+e.error);recognition=null};
+  recognition.onend=()=>{recognition=null};
+  recognition.start();
+}
+function speakText(text){
+  stopSpeaking();
+  if(!("speechSynthesis" in window)){alert("Este navegador no ofrece lectura en voz alta.");return}
+  let u=new SpeechSynthesisUtterance(text);u.lang="es-AR";u.rate=0.95;
+  speechSynthesis.speak(u);
+}
+function stopSpeaking(){if("speechSynthesis" in window)speechSynthesis.cancel()}
+function speakLast(){if(lastAIResponse)speakText(lastAIResponse)}
+function readCurrentChapter(){
+  let c=state.chapters[state.current],txt=textOf(c.html);
+  if(!txt){alert("El capítulo está vacío.");return}
+  speakText(txt);
+}
+function getNovelContext(query){
+  const q=query.toLowerCase();
+  let results=[];
+  state.chapters.forEach((c,ci)=>{
+    let div=document.createElement("div");div.innerHTML=c.html;
+    let ps=[...div.querySelectorAll("p")];
+    ps.forEach((p,pi)=>{
+      let t=p.innerText||"";
+      if(!q || t.toLowerCase().includes(q)) results.push({chapter:c.name,index:pi+1,text:t});
+    });
+  });
+  if(results.length>80)results=results.slice(0,80);
+  let headings=state.chapters.map((c,i)=>`${i+1}. ${c.name} (${textOf(c.html).split(/\s+/).filter(Boolean).length} palabras)`).join("\n");
+  let context="ÍNDICE DE LA NOVELA:\n"+headings+"\n\n";
+  if(results.length){
+    context+="FRAGMENTOS RELEVANTES:\n"+results.map(r=>`[${r.chapter} — párrafo ${r.index}]\n${r.text}`).join("\n\n");
+  }else{
+    context+="CAPÍTULO ACTUAL:\n"+state.chapters[state.current].name+"\n"+textOf(state.chapters[state.current].html).slice(0,14000);
+  }
+  return context;
+}
+function detectChapterRequest(q){
+  let m=q.match(/cap[ií]tulo\s+(\d+)/i);
+  return m?Number(m[1])-1:null;
+}
+async function sendAI(){
+  let q=$("aiInput").value.trim();if(!q)return;
+  let key=localStorage.getItem(AIKEY)||$("aiKey").value.trim();
+  if(!key){alert("Primero agregá tu clave de API en la configuración de IA.");return}
+  $("aiInput").value="";addAIMessage("user",q);
+  // Local voice commands that do not need an API call.
+  if(/le[ée].*cap[ií]tulo\s+\d+.*voz|leer.*cap[ií]tulo\s+\d+/i.test(q)){
+    let ci=detectChapterRequest(q);if(ci!==null&&state.chapters[ci]){let txt=textOf(state.chapters[ci].html);lastAIResponse="Leyendo "+state.chapters[ci].name+".";addAIMessage("assistant",lastAIResponse);speakText(txt);return}
+  }
+  if(/le[ée].*cap[ií]tulo actual|leer.*cap[ií]tulo actual/i.test(q)){let txt=textOf(state.chapters[state.current].html);lastAIResponse="Leyendo "+state.chapters[state.current].name+".";addAIMessage("assistant",lastAIResponse);speakText(txt);return}
+  let context=getNovelContext(q);
+  let system=`Sos el asistente personal de una persona que está escribiendo una novela. Respondé en español.
+Tenés que basarte primero en el material de la novela proporcionado. No inventes datos que no estén ahí sin indicarlo.
+Cuando encuentres información concreta, citá capítulo y número de párrafo.
+Podés analizar continuidad, personajes, lugares, relaciones, contradicciones, estilo y escenas.
+Si te piden detectar incongruencias, distinguí entre contradicción confirmada y posible contradicción.
+Si te piden continuar o reescribir, hacelo solamente cuando corresponda.
+La novela puede ser larga: usá los fragmentos y el índice disponibles.
+MATERIAL DE LA NOVELA:
+${context}`;
+  $("aiStatus").textContent="Pensando…";
+  try{
+    let r=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
+      body:JSON.stringify({model:localStorage.getItem(AIMODEL)||$("aiModel").value||"gpt-5.4",input:[{role:"system",content:system},{role:"user",content:q}]})});
+    let data=await r.json();
+    if(!r.ok)throw Error(data.error?.message||"Error de la API");
+    let text="";
+    if(typeof data.output_text==="string")text=data.output_text;
+    else if(Array.isArray(data.output))data.output.forEach(o=>{if(Array.isArray(o.content))o.content.forEach(c=>{if(c.text)text+=c.text})});
+    if(!text)text="La IA no devolvió texto.";
+    lastAIResponse=text;addAIMessage("assistant",text);speakText(text);
+  }catch(e){addAIMessage("assistant","No pude consultar la IA: "+e.message)}
+  finally{updateAIStatus()}
+}
+
 function exportBackup(){
   save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");
   a.href=URL.createObjectURL(blob);a.download=(state.title||"novela")+"_backup.json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
@@ -313,6 +489,7 @@ function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((
 
 if(localStorage.getItem("escritor_night")==="1")document.body.classList.add("night");
 load();
+updateAIStatus();
 
 if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=7").catch(()=>{});
 </script>
