@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Escritor</title>
+<link rel="manifest" href="manifest.json">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f5f7;color:#17191c;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{height:58px;background:#111827;color:#fff;display:flex;align-items:center;padding:0 14px;gap:10px;position:sticky;top:0;z-index:10}
+header input{background:transparent;border:0;color:white;font-size:18px;font-weight:700;min-width:0;flex:1;outline:none}
+button{border:0;border-radius:8px;padding:9px 11px;background:#e5e7eb;color:#111827;font-weight:600}
+.icon{background:#374151;color:#fff;font-size:18px}
+main{display:flex;max-width:1100px;margin:auto;min-height:calc(100vh - 58px)}
+#chapters{width:240px;background:#fff;border-right:1px solid #ddd;padding:14px}
+#chapters h3{margin:4px 0 12px;font-size:14px;color:#666}
+.chapter{padding:10px;border-radius:8px;cursor:pointer;margin-bottom:4px}
+.chapter.active{background:#e9eefb;font-weight:700}
+#editorWrap{flex:1;min-width:0;background:#fff}
+#toolbar{display:flex;gap:6px;flex-wrap:wrap;padding:10px;border-bottom:1px solid #ddd;position:sticky;top:58px;background:#fff;z-index:5}
+#toolbar button{font-size:13px}
+#editor{padding:28px clamp(18px,5vw,70px);min-height:calc(100vh - 120px);outline:none;font-family:Georgia,serif;font-size:20px;line-height:1.7}
+#editor p{margin:0 0 14px;position:relative}
+#editor p.selected{background:#fff8d7}
+#side{width:300px;border-left:1px solid #ddd;background:#fafafa;padding:16px}
+#side h3{margin-top:0}
+#noteText{width:100%;min-height:180px;border:1px solid #ccc;border-radius:8px;padding:10px;font:15px system-ui;resize:vertical}
+.muted{color:#777;font-size:13px}.hidden{display:none}
+#stats{font-size:12px;color:#777;margin-left:auto}
+@media(max-width:800px){#chapters{display:none}#side{width:100%;position:fixed;bottom:0;left:0;right:0;border:0;border-top:1px solid #ddd;z-index:20;transform:translateY(100%);transition:.2s}.notes-open #side{transform:translateY(0)}#editor{padding-bottom:260px}#toolbar{top:58px}}
+</style>
+</head>
+<body>
+<header>
+<button class="icon" onclick="newChapter()">＋</button>
+<input id="title" value="Mi novela" aria-label="Nombre del proyecto">
+<button onclick="exportDocx()">Word</button>
+<button class="icon" onclick="toggleNotes()">📝</button>
+</header>
+<main>
+<aside id="chapters">
+<h3>CAPÍTULOS</h3><div id="chapterList"></div>
+</aside>
+<section id="editorWrap">
+<div id="toolbar">
+<button onclick="cmd('bold')"><b>B</b></button><button onclick="cmd('italic')"><i>I</i></button>
+<button onclick="cmd('underline')"><u>U</u></button><button onclick="insertParagraph()">Nuevo párrafo</button>
+<span id="stats"></span>
+</div>
+<div id="editor" contenteditable="true" spellcheck="true" autocapitalize="sentences"></div>
+</section>
+<aside id="side">
+<h3>Nota del párrafo</h3>
+<div id="selectedLabel" class="muted">Seleccioná un párrafo.</div>
+<br>
+<textarea id="noteText" placeholder="Escribí una nota sobre este párrafo: ideas, cambios, datos, cosas a investigar, etc."></textarea>
+<br><br><button onclick="saveNote()">Guardar nota</button>
+<button onclick="clearNote()">Borrar</button>
+<p class="muted">Las notas no forman parte del texto principal. Al exportar a Word se agregan al final como sección “Notas de edición”.</p>
+</aside>
+</main>
+<script>
+const KEY="escritor_novela_v1";
+let state=JSON.parse(localStorage.getItem(KEY)||"null")||{
+ title:"Mi novela", current:0, chapters:[{name:"Capítulo 1",html:"<p>Empezá a escribir acá...</p>",notes:{}}]
+};
+let selected=null;
+const $=id=>document.getElementById(id);
+function save(){state.title=$("title").value;state.chapters[state.current].html=$("editor").innerHTML;localStorage.setItem(KEY,JSON.stringify(state));renderChapters();stats()}
+function load(){ $("title").value=state.title; $("editor").innerHTML=state.chapters[state.current].html; bindParagraphs(); stats(); renderChapters()}
+function renderChapters(){let box=$("chapterList");box.innerHTML="";state.chapters.forEach((c,i)=>{let d=document.createElement("div");d.className="chapter"+(i===state.current?" active":"");d.textContent=c.name;d.onclick=()=>{save();state.current=i;selected=null;load();$("noteText").value=""};box.appendChild(d)})}
+function bindParagraphs(){document.querySelectorAll("#editor p").forEach((p,i)=>{p.onclick=e=>{e.stopPropagation();selected=i;document.querySelectorAll("#editor p").forEach(x=>x.classList.remove("selected"));p.classList.add("selected");let n=state.chapters[state.current].notes||{};$("noteText").value=n[i]||"";$("selectedLabel").textContent="Párrafo "+(i+1);document.body.classList.add("notes-open")}})}
+function stats(){let text=$("editor").innerText.trim();let words=text?text.split(/\s+/).length:0;$("stats").textContent=words+" palabras"}
+$("editor").addEventListener("input",()=>{bindParagraphs();save()});
+$("title").addEventListener("input",save);
+function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
+function insertParagraph(){document.execCommand("insertParagraph");save();bindParagraphs()}
+function newChapter(){let n=state.chapters.length+1;state.chapters.push({name:"Capítulo "+n,html:"<p></p>",notes:{}});state.current=state.chapters.length-1;selected=null;save();load()}
+function saveNote(){if(selected===null)return;state.chapters[state.current].notes=state.chapters[state.current].notes||{};state.chapters[state.current].notes[selected]=$("noteText").value.trim();localStorage.setItem(KEY,JSON.stringify(state));document.body.classList.remove("notes-open")}
+function clearNote(){if(selected===null)return;delete (state.chapters[state.current].notes||{})[selected];$("noteText").value="";localStorage.setItem(KEY,JSON.stringify(state))}
+function toggleNotes(){document.body.classList.toggle("notes-open")}
+function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function textOf(html){let d=document.createElement("div");d.innerHTML=html;return d.innerText.trim()}
+async function exportDocx(){
+  const zip=new SimpleZip();
+  const files={};
+  files["[Content_Types].xml"]=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+  files["_rels/.rels"]=`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  let body=`<w:p><w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>${esc(state.title)}</w:t></w:r></w:p>`;
+  state.chapters.forEach((c,ci)=>{
+    body+=`<w:p><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>${esc(c.name)}</w:t></w:r></w:p>`;
+    let d=document.createElement("div");d.innerHTML=c.html;
+    [...d.querySelectorAll("p")].forEach((p,i)=>{
+      let t=p.innerText.trim(); if(!t)t=" ";
+      body+=`<w:p><w:r><w:t xml:space="preserve">${esc(t)}</w:t></w:r></w:p>`;
+    });
+  });
+  let hasNotes=false;
+  state.chapters.forEach(c=>{if(Object.values(c.notes||{}).some(x=>x))hasNotes=true});
+  if(hasNotes){
+    body+=`<w:p><w:r><w:rPr><w:b/><w:sz w:val="30"/></w:rPr><w:t>Notas de edición</w:t></w:r></w:p>`;
+    state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)body+=`<w:p><w:r><w:t>${esc(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}</w:t></w:r></w:p>`}));
+  }
+  files["word/document.xml"]=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr/></w:body></w:document>`;
+  const blob=await zip.blob(files);
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=(state.title||"novela")+".docx";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+class SimpleZip{
+  async blob(files){
+    const enc=new TextEncoder(), chunks=[], central=[];let off=0;
+    for(const [name,data] of Object.entries(files)){
+      const b=enc.encode(data), crc=crc32(b), nb=enc.encode(name);
+      let h=new Uint8Array(30+nb.length),v=new DataView(h.buffer);
+      v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);v.setUint16(8,0,true);v.setUint16(10,0,true);v.setUint32(14,crc,true);v.setUint32(18,b.length,true);v.setUint32(22,b.length,true);v.setUint16(26,nb.length,true);h.set(nb,30);
+      chunks.push(h,b);
+      let c=new Uint8Array(46+nb.length);v=new DataView(c.buffer);v.setUint32(0,0x02014b50,true);v.setUint16(4,20,true);v.setUint16(6,20,true);v.setUint16(8,0,true);v.setUint16(10,0,true);v.setUint32(16,crc,true);v.setUint32(20,b.length,true);v.setUint32(24,b.length,true);v.setUint16(28,nb.length,true);v.setUint32(42,off,true);c.set(nb,46);central.push(c);off+=h.length+b.length;
+    }
+    let cd=central.reduce((a,b)=>a+b.length,0), end=new Uint8Array(22),v=new DataView(end.buffer);v.setUint32(0,0x06054b50,true);v.setUint16(8,central.length,true);v.setUint16(10,central.length,true);v.setUint32(12,cd,true);v.setUint32(16,off,true);
+    return new Blob([...chunks,...central,end],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+  }
+}
+function crc32(bytes){let c=~0;for(let i=0;i<bytes.length;i++){c^=bytes[i];for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return (~c)>>>0}
+load();
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+}
+</script>
+</body></html>
