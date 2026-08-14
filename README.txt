@@ -1,1 +1,1 @@
-V6 — menú vertical, capítulos, importar/exportar Word, modo nocturno, biblioteca, búsqueda, concentración y copia de seguridad.
+V7 funcional: menú vertical, capítulos, importar/exportar Word, notas, modo nocturno, biblioteca, búsqueda, concentración, copia de seguridad, personajes y lugares. Compatible con datos guardados bajo la clave de versiones anteriores.

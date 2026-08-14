@@ -4,103 +4,81 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Escritor v6</title>
+<title>Escritor v7</title>
 <link rel="manifest" href="manifest.json">
 <style>
-*{box-sizing:border-box}body{margin:0;background:#f4f5f7;color:#17191c;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-header{height:58px;background:#111827;color:#fff;display:flex;align-items:center;padding:0 14px;gap:10px;position:sticky;top:0;z-index:10}
-header input{background:transparent;border:0;color:white;font-size:17px;font-weight:700;min-width:0;flex:1;outline:none}
+*{box-sizing:border-box}
+body{margin:0;background:#f4f5f7;color:#17191c;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{height:58px;background:#111827;color:#fff;display:flex;align-items:center;padding:0 12px;gap:9px;position:sticky;top:0;z-index:80}
+header input{background:transparent;border:0;color:#fff;font-size:17px;font-weight:700;min-width:0;flex:1;outline:none}
 button{border:0;border-radius:8px;padding:9px 11px;background:#e5e7eb;color:#111827;font-weight:600}
 .icon{background:#374151;color:#fff;font-size:18px}
 main{display:flex;max-width:1100px;margin:auto;min-height:calc(100vh - 58px)}
-#chapters{width:240px;background:#fff;border-right:1px solid #ddd;padding:14px}
+#chapters{width:250px;background:#fff;border-right:1px solid #ddd;padding:14px}
 #chapters h3{margin:4px 0 12px;font-size:14px;color:#666}
-.chapter{padding:10px;border-radius:8px;cursor:pointer;margin-bottom:4px}
+.chapter{padding:9px;border-radius:8px;margin-bottom:4px;display:flex;align-items:center;gap:6px}
 .chapter.active{background:#e9eefb;font-weight:700}
+.chapter-name{flex:1;cursor:pointer}
 #editorWrap{flex:1;min-width:0;background:#fff}
-#toolbar{display:flex;gap:6px;flex-wrap:wrap;padding:10px;border-bottom:1px solid #ddd;position:sticky;top:58px;background:#fff;z-index:5}
+#toolbar{display:flex;gap:6px;flex-wrap:wrap;padding:10px;border-bottom:1px solid #ddd;position:sticky;top:58px;background:#fff;z-index:50}
 #toolbar button{font-size:13px}
 #editor{padding:28px clamp(18px,5vw,70px);min-height:calc(100vh - 120px);outline:none;font-family:Georgia,serif;font-size:20px;line-height:1.7}
-#editor p{margin:0 0 14px;position:relative}
+#editor p{margin:0 0 14px}
 #editor p.selected{background:#fff8d7}
 #side{width:300px;border-left:1px solid #ddd;background:#fafafa;padding:16px}
 #side h3{margin-top:0}
-body.night{background:#111;color:#e7e7e7}
-body.night header{background:#050505}
-body.night #chapters,body.night #editorWrap,body.night #side,body.night #toolbar{background:#181818;color:#e7e7e7;border-color:#333}
-body.night .chapter.active{background:#303030}
-body.night button{background:#303030;color:#eee}
-body.night #editor{color:#e7e7e7}
-body.night #editor p.selected{background:#3a3520}
-body.night #noteText{background:#202020;color:#eee;border-color:#444}
-body.night .muted,body.night #stats{color:#aaa}
 #noteText{width:100%;min-height:180px;border:1px solid #ccc;border-radius:8px;padding:10px;font:15px system-ui;resize:vertical}
-.muted{color:#777;font-size:13px}.hidden{display:none}
+.muted{color:#777;font-size:13px}
 #stats{font-size:12px;color:#777;margin-left:auto}
-@media(max-width:800px){
-#chapters{display:block;position:fixed;top:58px;left:0;bottom:0;width:78%;max-width:300px;z-index:30;transform:translateX(-105%);transition:.2s;box-shadow:4px 0 18px #0002}
-.chapters-open #chapters{transform:translateX(0)}
-#side{width:100%;position:fixed;bottom:0;left:0;right:0;border:0;border-top:1px solid #ddd;z-index:20;transform:translateY(100%);transition:.2s}.notes-open #side{transform:translateY(0)}
-#editor{padding-bottom:260px}#toolbar{top:58px}}
-
-
-/* V5 */
-#library{display:none;position:fixed;inset:58px 0 0 0;background:#fff;z-index:25;overflow:auto;padding:20px}
-.library-open #library{display:block}
-.library-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;max-width:1000px;margin:auto}
+#appMenu{position:fixed;top:58px;left:0;width:290px;max-width:88vw;background:#fff;border-right:1px solid #ddd;box-shadow:5px 8px 22px #0003;z-index:100;display:none;padding:10px}
+#appMenu.open{display:block}
+#appMenu .menu-title{font-size:18px;font-weight:800;padding:10px;border-bottom:1px solid #ddd;margin-bottom:5px}
+#appMenu button{display:block;width:100%;text-align:left;background:transparent;margin:2px 0;padding:13px}
+#appMenu button:hover{background:#eef1f5}
+#appMenuBackdrop{display:none;position:fixed;inset:58px 0 0;background:#0003;z-index:99}
+#appMenuBackdrop.open{display:block}
+.overlayPanel{display:none;position:fixed;inset:58px 0 0;background:#fff;z-index:70;overflow:auto;padding:20px}
+.overlayPanel.open{display:block}
+.panelInner{max-width:1000px;margin:auto}
+.library-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
 .library-card{border:1px solid #ddd;border-radius:10px;padding:15px;background:#fafafa}
 .library-card h3{margin:0 0 7px}
-.night #library{background:#111;color:#eee}.night .library-card{background:#1c1c1c;border-color:#333}
-#searchPanel{display:none;position:fixed;inset:58px 0 0 0;background:#fff;z-index:26;overflow:auto;padding:20px}
-.search-open #searchPanel{display:block}
-.night #searchPanel{background:#111;color:#eee}
 .search-result{padding:12px;border-bottom:1px solid #ddd;cursor:pointer}
-.night .search-result{border-color:#333}
-#focusExit{display:none;position:fixed;top:10px;right:10px;z-index:50}
+#focusExit{display:none;position:fixed;top:10px;right:10px;z-index:200}
 .focus-mode header,.focus-mode #chapters,.focus-mode #toolbar,.focus-mode #side{display:none!important}
 .focus-mode #editor{min-height:100vh;padding:8vh 8vw;font-size:22px;max-width:900px;margin:auto}
 .focus-mode #editorWrap{width:100%}
-.focus-mode #focusExit{display:block}
-@media(max-width:800px){#library,#searchPanel{padding:14px}}
-
-#appMenu{position:fixed;top:58px;left:0;width:280px;max-width:85vw;background:#fff;border-right:1px solid #ddd;box-shadow:5px 8px 22px #0003;z-index:100;display:none;padding:10px}
-#appMenu.open{display:block}
-#appMenu .menu-title{font-size:18px;font-weight:800;padding:12px 10px;border-bottom:1px solid #ddd;margin-bottom:6px}
-#appMenu button{display:block;width:100%;text-align:left;margin:3px 0;padding:13px 12px;background:transparent}
-#appMenu button:hover{background:#eef1f5}
-#appMenuBackdrop{display:none;position:fixed;inset:58px 0 0 0;background:#0003;z-index:99}
-#appMenuBackdrop.open{display:block}
-body.night #appMenu{background:#181818;color:#eee;border-color:#333}
+body.night{background:#111;color:#e7e7e7}
+body.night header{background:#050505}
+body.night #chapters,body.night #editorWrap,body.night #side,body.night #toolbar,
+body.night #appMenu,body.night .overlayPanel{background:#181818;color:#eee;border-color:#333}
+body.night .chapter.active{background:#303030}
+body.night button{background:#303030;color:#eee}
+body.night #editor{color:#eee}
+body.night #editor p.selected{background:#3a3520}
+body.night #noteText,body.night #globalSearch{background:#202020;color:#eee;border-color:#444}
+body.night .library-card{background:#1c1c1c;border-color:#333}
+body.night .muted,body.night #stats{color:#aaa}
 body.night #appMenu .menu-title{border-color:#333}
-body.night #appMenu button{color:#eee}
+@media(max-width:800px){
+  #chapters{position:fixed;top:58px;left:0;bottom:0;width:82%;max-width:310px;z-index:90;transform:translateX(-105%);transition:.2s;box-shadow:4px 0 18px #0002}
+  body.chapters-open #chapters{transform:translateX(0)}
+  #side{width:100%;position:fixed;bottom:0;left:0;right:0;border:0;border-top:1px solid #ddd;z-index:95;transform:translateY(100%);transition:.2s}
+  body.notes-open #side{transform:translateY(0)}
+  #editor{padding-bottom:270px}
+}
 </style>
 </head>
 <body>
 <header>
-<button class="icon" onclick="toggleChapters()">☰</button>
-<input id="title" value="Mi novela" aria-label="Nombre del proyecto">
-<button onclick="document.getElementById('wordFile').click()">Importar Word</button>
-<button onclick="openLibrary()">Biblioteca</button><button onclick="openSearch()">Buscar</button><button onclick="toggleFocus()">Concentración</button><button onclick="exportBackup()">Copia</button><button onclick="exportDocx()">Word</button><button onclick="toggleNight()" title="Modo de lectura nocturna">☾</button>
-<button class="icon" onclick="toggleNotes()">📝</button>
-<input id="wordFile" type="file" accept=".docx" hidden onchange="importDocx(this.files[0])">
+  <button class="icon" onclick="toggleAppMenu()">☰</button>
+  <input id="title" value="Mi novela" aria-label="Nombre del proyecto">
+  <button class="icon" onclick="toggleNotes()">📝</button>
+  <input id="wordFile" type="file" accept=".docx" hidden onchange="importDocx(this.files[0])">
 </header>
 
-<button id="focusExit" onclick="toggleFocus()">Salir de concentración</button>
-<section id="library">
-  <div style="max-width:1000px;margin:auto;display:flex;align-items:center;gap:8px">
-    <h2 style="flex:1">Biblioteca de la novela</h2><button onclick="closeLibrary()">Cerrar</button>
-  </div>
-  <div id="libraryContent" class="library-grid"></div>
-</section>
-<section id="searchPanel">
-  <div style="max-width:1000px;margin:auto">
-    <div style="display:flex;gap:8px"><input id="globalSearch" style="flex:1;padding:11px;border:1px solid #ccc;border-radius:8px;font-size:16px" placeholder="Buscar en toda la novela..." oninput="runSearch()"><button onclick="closeSearch()">Cerrar</button></div>
-    <div id="searchResults" style="margin-top:15px"></div>
-  </div>
-</section>
-
 <div id="appMenuBackdrop" onclick="closeAppMenu()"></div>
-<nav id="appMenu" aria-label="Menú principal">
+<nav id="appMenu">
   <div class="menu-title">Escritor</div>
   <button onclick="toggleChapters();closeAppMenu()">📚 Capítulos</button>
   <button onclick="document.getElementById('wordFile').click();closeAppMenu()">📥 Importar Word</button>
@@ -111,148 +89,232 @@ body.night #appMenu button{color:#eee}
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
 </nav>
-<main>
-<aside id="chapters">
-<div style="display:flex;align-items:center;gap:8px"><h3 style="flex:1">CAPÍTULOS</h3><button onclick="newChapter()">＋</button><button onclick="toggleChapters()">×</button></div><button style="width:100%;margin-bottom:10px" onclick="document.getElementById('wordFile').click()">Importar Word (.docx)</button>
-<div id="chapterList"></div>
-</aside>
-<section id="editorWrap">
-<div id="toolbar">
-<button onclick="cmd('bold')"><b>B</b></button><button onclick="cmd('italic')"><i>I</i></button>
-<button onclick="cmd('underline')"><u>U</u></button><button onclick="insertParagraph()">Nuevo párrafo</button>
-<span id="stats"></span>
-</div>
-<div id="editor" contenteditable="true" spellcheck="true" autocapitalize="sentences"></div>
+
+<section id="library" class="overlayPanel">
+  <div class="panelInner">
+    <div style="display:flex;align-items:center;gap:8px"><h2 style="flex:1">Biblioteca</h2><button onclick="closeLibrary()">Cerrar</button></div>
+    <div id="libraryContent" class="library-grid"></div>
+  </div>
 </section>
-<aside id="side">
-<h3>Nota del párrafo</h3>
-<div id="selectedLabel" class="muted">Seleccioná un párrafo.</div>
-<br>
-<textarea id="noteText" placeholder="Escribí una nota sobre este párrafo: ideas, cambios, datos, cosas a investigar, etc."></textarea>
-<br><br><button onclick="saveNote()">Guardar nota</button>
-<button onclick="clearNote()">Borrar</button>
-<p class="muted">Las notas no forman parte del texto principal. Al exportar a Word se agregan al final como sección “Notas de edición”.</p>
-</aside>
+
+<section id="searchPanel" class="overlayPanel">
+  <div class="panelInner">
+    <div style="display:flex;gap:8px">
+      <input id="globalSearch" style="flex:1;padding:11px;border:1px solid #ccc;border-radius:8px;font-size:16px" placeholder="Buscar en toda la novela..." oninput="runSearch()">
+      <button onclick="closeSearch()">Cerrar</button>
+    </div>
+    <div id="searchResults" style="margin-top:15px"></div>
+  </div>
+</section>
+
+<button id="focusExit" onclick="toggleFocus()">Salir de concentración</button>
+
+<main>
+  <aside id="chapters">
+    <div style="display:flex;align-items:center;gap:8px">
+      <h3 style="flex:1">CAPÍTULOS</h3>
+      <button onclick="newChapter()">＋</button>
+      <button onclick="toggleChapters()">×</button>
+    </div>
+    <div id="chapterList"></div>
+  </aside>
+
+  <section id="editorWrap">
+    <div id="toolbar">
+      <button onclick="cmd('bold')"><b>B</b></button>
+      <button onclick="cmd('italic')"><i>I</i></button>
+      <button onclick="cmd('underline')"><u>U</u></button>
+      <button onclick="insertParagraph()">Nuevo párrafo</button>
+      <span id="stats"></span>
+    </div>
+    <div id="editor" contenteditable="true" spellcheck="true" autocapitalize="sentences"></div>
+  </section>
+
+  <aside id="side">
+    <h3>Nota del párrafo</h3>
+    <div id="selectedLabel" class="muted">Seleccioná un párrafo.</div><br>
+    <textarea id="noteText" placeholder="Escribí una nota sobre este párrafo..."></textarea><br><br>
+    <button onclick="saveNote()">Guardar nota</button>
+    <button onclick="clearNote()">Borrar</button>
+    <p class="muted">Las notas se mantienen separadas del texto y se incluyen al final del Word exportado.</p>
+  </aside>
 </main>
+
 <script>
 const KEY="escritor_novela_v1";
 let state=JSON.parse(localStorage.getItem(KEY)||"null")||{
- title:"Mi novela", current:0, chapters:[{name:"Capítulo 1",html:"<p>Empezá a escribir acá...</p>",notes:{}}]
+ title:"Mi novela",current:0,
+ chapters:[{name:"Capítulo 1",html:"<p>Empezá a escribir acá...</p>",notes:{}}],
+ characters:[],places:[],history:{}
 };
+state.characters=state.characters||[];
+state.places=state.places||[];
+state.history=state.history||{};
 let selected=null;
+
 const $=id=>document.getElementById(id);
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function textOf(h){let d=document.createElement("div");d.innerHTML=h;return d.innerText.trim()}
+
 function save(){
   state.title=$("title").value;
   state.chapters[state.current].html=$("editor").innerHTML;
-  state.history[state.current]=state.history[state.current]||[];
-  let snapshot=state.chapters[state.current].html;
-  let h=state.history[state.current];
-  if(!h.length || h[h.length-1]!==snapshot){h.push(snapshot);if(h.length>20)h.shift()}
-  localStorage.setItem(KEY,JSON.stringify(state));renderChapters();stats()
+  let h=state.history[state.current]||(state.history[state.current]=[]);
+  let snap=state.chapters[state.current].html;
+  if(!h.length||h[h.length-1]!==snap){h.push(snap);if(h.length>20)h.shift()}
+  localStorage.setItem(KEY,JSON.stringify(state));
+  renderChapters();stats();
 }
-function load(){ $("title").value=state.title; $("editor").innerHTML=state.chapters[state.current].html; bindParagraphs(); stats(); renderChapters()}
-function renderChapters(){let box=$("chapterList");box.innerHTML="";state.chapters.forEach((c,i)=>{
-let d=document.createElement("div");d.className="chapter"+(i===state.current?" active":"");d.style.display="flex";d.style.alignItems="center";d.style.gap="6px";
-let name=document.createElement("span");name.textContent=c.name;name.style.flex="1";name.onclick=()=>{save();state.current=i;selected=null;load();$("noteText").value="";if(window.innerWidth<801)document.body.classList.remove("chapters-open")};
-let del=document.createElement("button");del.textContent="🗑";del.title="Eliminar capítulo";del.style.padding="5px 7px";del.onclick=e=>{e.stopPropagation();deleteChapter(i)};
-d.appendChild(name);d.appendChild(del);box.appendChild(d)})}
-function bindParagraphs(){document.querySelectorAll("#editor p").forEach((p,i)=>{p.onclick=e=>{e.stopPropagation();selected=i;document.querySelectorAll("#editor p").forEach(x=>x.classList.remove("selected"));p.classList.add("selected");let n=state.chapters[state.current].notes||{};$("noteText").value=n[i]||"";$("selectedLabel").textContent="Párrafo "+(i+1);document.body.classList.add("notes-open")}})}
+function load(){
+  $("title").value=state.title;
+  $("editor").innerHTML=state.chapters[state.current].html;
+  selected=null;$("noteText").value="";$("selectedLabel").textContent="Seleccioná un párrafo.";
+  bindParagraphs();stats();renderChapters();
+}
+function renderChapters(){
+  const box=$("chapterList");box.innerHTML="";
+  state.chapters.forEach((c,i)=>{
+    let d=document.createElement("div");d.className="chapter"+(i===state.current?" active":"");
+    let name=document.createElement("span");name.className="chapter-name";name.textContent=c.name;
+    name.onclick=()=>{save();state.current=i;load();if(innerWidth<801)document.body.classList.remove("chapters-open")};
+    let del=document.createElement("button");del.textContent="🗑";del.title="Eliminar capítulo";del.style.padding="5px 7px";
+    del.onclick=e=>{e.stopPropagation();deleteChapter(i)};
+    d.append(name,del);box.appendChild(d);
+  });
+}
+function bindParagraphs(){
+  document.querySelectorAll("#editor p").forEach((p,i)=>{
+    p.onclick=e=>{
+      e.stopPropagation();selected=i;
+      document.querySelectorAll("#editor p").forEach(x=>x.classList.remove("selected"));
+      p.classList.add("selected");
+      let n=state.chapters[state.current].notes||{};
+      $("noteText").value=n[i]||"";$("selectedLabel").textContent="Párrafo "+(i+1);
+      document.body.classList.add("notes-open");
+    };
+  });
+}
 function stats(){
- let text=$("editor").innerText.trim(),words=text?text.split(/\s+/).length:0;
- let all=state.chapters.map(c=>textOf(c.html)).join(" ").trim(),allWords=all?all.split(/\s+/).length:0;
- $("stats").textContent=words+" palabras · novela: "+allWords;
+  let t=$("editor").innerText.trim(),w=t?t.split(/\s+/).length:0;
+  let all=state.chapters.map(c=>textOf(c.html)).join(" ").trim(),aw=all?all.split(/\s+/).length:0;
+  $("stats").textContent=w+" palabras · novela: "+aw;
 }
-function totalNotes(){return state.chapters.reduce((n,c)=>n+Object.values(c.notes||{}).filter(Boolean).length,0)}
 $("editor").addEventListener("input",()=>{bindParagraphs();save()});
 $("title").addEventListener("input",save);
 function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
 function insertParagraph(){document.execCommand("insertParagraph");save();bindParagraphs()}
-function newChapter(){let n=state.chapters.length+1;state.chapters.push({name:"Capítulo "+n,html:"<p></p>",notes:{}});state.current=state.chapters.length-1;selected=null;save();load()}
+function newChapter(){save();state.chapters.push({name:"Capítulo "+(state.chapters.length+1),html:"<p></p>",notes:{}});state.current=state.chapters.length-1;selected=null;localStorage.setItem(KEY,JSON.stringify(state));load()}
+function deleteChapter(i){
+  const c=state.chapters[i];
+  if(!confirm('¿Querés eliminar "'+c.name+'"?\\n\\nPrimera confirmación.'))return;
+  if(!confirm('Confirmación final: ¿REALMENTE querés eliminar "'+c.name+'"?\\n\\nTambién se eliminarán sus notas.'))return;
+  state.chapters.splice(i,1);
+  if(!state.chapters.length)state.chapters.push({name:"Capítulo 1",html:"<p></p>",notes:{}});
+  state.current=Math.min(state.current,state.chapters.length-1);
+  selected=null;localStorage.setItem(KEY,JSON.stringify(state));load();
+}
 function saveNote(){if(selected===null)return;state.chapters[state.current].notes=state.chapters[state.current].notes||{};state.chapters[state.current].notes[selected]=$("noteText").value.trim();localStorage.setItem(KEY,JSON.stringify(state));document.body.classList.remove("notes-open")}
 function clearNote(){if(selected===null)return;delete (state.chapters[state.current].notes||{})[selected];$("noteText").value="";localStorage.setItem(KEY,JSON.stringify(state))}
 function toggleNotes(){document.body.classList.toggle("notes-open")}
-function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
-function textOf(html){let d=document.createElement("div");d.innerHTML=html;return d.innerText.trim()}
-async function exportDocx(){
-  const zip=new SimpleZip();
-  const files={};
-  files["[Content_Types].xml"]=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
-  files["_rels/.rels"]=`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
-  let body=`<w:p><w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>${esc(state.title)}</w:t></w:r></w:p>`;
+function toggleChapters(){document.body.classList.toggle("chapters-open")}
+function toggleAppMenu(){document.body.classList.remove("chapters-open");$("appMenu").classList.toggle("open");$("appMenuBackdrop").classList.toggle("open")}
+function closeAppMenu(){$("appMenu").classList.remove("open");$("appMenuBackdrop").classList.remove("open")}
+function toggleNight(){document.body.classList.toggle("night");localStorage.setItem("escritor_night",document.body.classList.contains("night")?"1":"0")}
+function toggleFocus(){document.body.classList.toggle("focus-mode")}
+function openLibrary(){renderLibrary();$("library").classList.add("open")}
+function closeLibrary(){$("library").classList.remove("open")}
+function openSearch(){$("searchPanel").classList.add("open");setTimeout(()=>$("globalSearch").focus(),50)}
+function closeSearch(){$("searchPanel").classList.remove("open")}
+function runSearch(){
+  let q=$("globalSearch").value.trim().toLowerCase(),b=$("searchResults");b.innerHTML="";
+  if(!q)return;
   state.chapters.forEach((c,ci)=>{
-    body+=`<w:p><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>${esc(c.name)}</w:t></w:r></w:p>`;
     let d=document.createElement("div");d.innerHTML=c.html;
-    [...d.querySelectorAll("p")].forEach((p,i)=>{
-      let t=p.innerText.trim(); if(!t)t=" ";
-      body+=`<w:p><w:r><w:t xml:space="preserve">${esc(t)}</w:t></w:r></w:p>`;
+    [...d.querySelectorAll("p")].forEach((p,pi)=>{
+      let t=p.innerText||"";
+      if(t.toLowerCase().includes(q)){
+        let r=document.createElement("div");r.className="search-result";
+        r.innerHTML="<b>"+esc(c.name)+" · Párrafo "+(pi+1)+"</b><br>"+esc(t.slice(0,240));
+        r.onclick=()=>{closeSearch();state.current=ci;load()};
+        b.appendChild(r);
+      }
     });
   });
-  let hasNotes=false;
-  state.chapters.forEach(c=>{if(Object.values(c.notes||{}).some(x=>x))hasNotes=true});
-  if(hasNotes){
-    body+=`<w:p><w:r><w:rPr><w:b/><w:sz w:val="30"/></w:rPr><w:t>Notas de edición</w:t></w:r></w:p>`;
-    state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)body+=`<w:p><w:r><w:t>${esc(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}</w:t></w:r></w:p>`}));
-  }
-  files["word/document.xml"]=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr/></w:body></w:document>`;
-  const blob=await zip.blob(files);
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=(state.title||"novela")+".docx";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  if(!b.children.length)b.innerHTML="<p class='muted'>No se encontraron resultados.</p>";
 }
-class SimpleZip{
-  async blob(files){
-    const enc=new TextEncoder(), chunks=[], central=[];let off=0;
-    for(const [name,data] of Object.entries(files)){
-      const b=enc.encode(data), crc=crc32(b), nb=enc.encode(name);
-      let h=new Uint8Array(30+nb.length),v=new DataView(h.buffer);
-      v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);v.setUint16(8,0,true);v.setUint16(10,0,true);v.setUint32(14,crc,true);v.setUint32(18,b.length,true);v.setUint32(22,b.length,true);v.setUint16(26,nb.length,true);h.set(nb,30);
-      chunks.push(h,b);
-      let c=new Uint8Array(46+nb.length);v=new DataView(c.buffer);v.setUint32(0,0x02014b50,true);v.setUint16(4,20,true);v.setUint16(6,20,true);v.setUint16(8,0,true);v.setUint16(10,0,true);v.setUint32(16,crc,true);v.setUint32(20,b.length,true);v.setUint32(24,b.length,true);v.setUint16(28,nb.length,true);v.setUint32(42,off,true);c.set(nb,46);central.push(c);off+=h.length+b.length;
-    }
-    let cd=central.reduce((a,b)=>a+b.length,0), end=new Uint8Array(22),v=new DataView(end.buffer);v.setUint32(0,0x06054b50,true);v.setUint16(8,central.length,true);v.setUint16(10,central.length,true);v.setUint32(12,cd,true);v.setUint32(16,off,true);
-    return new Blob([...chunks,...central,end],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
-  }
+function totalNotes(){return state.chapters.reduce((n,c)=>n+Object.values(c.notes||{}).filter(Boolean).length,0)}
+function renderLibrary(){
+  let b=$("libraryContent");b.innerHTML="";
+  let all=state.chapters.map(c=>textOf(c.html)).join(" ").trim(),words=all?all.split(/\s+/).length:0;
+  let cards=[
+    ["Capítulos",state.chapters.length,""],
+    ["Palabras",words,""],
+    ["Notas",totalNotes(),""],
+    ["Personajes",state.characters.length,""],
+    ["Lugares",state.places.length,""]
+  ];
+  cards.forEach(x=>{let d=document.createElement("div");d.className="library-card";d.innerHTML="<h3>"+x[0]+"</h3><strong style='font-size:28px'>"+x[1]+"</strong>";b.appendChild(d)});
+  let c=document.createElement("div");c.className="library-card";c.innerHTML="<h3>Personajes</h3><button onclick='addCharacter()'>+ Agregar</button><div id='charList'></div>";b.appendChild(c);
+  let p=document.createElement("div");p.className="library-card";p.innerHTML="<h3>Lugares</h3><button onclick='addPlace()'>+ Agregar</button><div id='placeList'></div>";b.appendChild(p);
+  let n=document.createElement("div");n.className="library-card";n.innerHTML="<h3>Notas</h3><button onclick='showAllNotes()'>Ver todas</button>";b.appendChild(n);
+  renderEntities();
 }
-function crc32(bytes){let c=~0;for(let i=0;i<bytes.length;i++){c^=bytes[i];for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return (~c)>>>0}
-
-function toggleNight(){document.body.classList.toggle("night");localStorage.setItem("escritor_night",document.body.classList.contains("night")?"1":"0")}
-function deleteChapter(i){
- const c=state.chapters[i];
- if(!confirm('¿Querés eliminar "'+c.name+'"?\\n\\nPrimera confirmación.'))return;
- if(!confirm('Confirmación final: ¿REALMENTE querés eliminar "'+c.name+'"?\\n\\nEsta acción también eliminará sus notas.'))return;
- state.chapters.splice(i,1);
- if(!state.chapters.length)state.chapters.push({name:"Capítulo 1",html:"<p></p>",notes:{}});
- state.current=Math.min(state.current,state.chapters.length-1);selected=null;
- localStorage.setItem(KEY,JSON.stringify(state));load();
+function renderEntities(){
+  let cl=$("charList"),pl=$("placeList");if(!cl||!pl)return;
+  cl.innerHTML=state.characters.length?state.characters.map(x=>"<p><b>"+esc(x.name)+"</b><br><span class='muted'>"+esc(x.desc||"")+"</span></p>").join(""):"<p class='muted'>Sin personajes.</p>";
+  pl.innerHTML=state.places.length?state.places.map(x=>"<p><b>"+esc(x.name)+"</b><br><span class='muted'>"+esc(x.desc||"")+"</span></p>").join(""):"<p class='muted'>Sin lugares.</p>";
 }
-function toggleAppMenu(){document.getElementById("appMenu").classList.toggle("open");document.getElementById("appMenuBackdrop").classList.toggle("open")}
-function closeAppMenu(){document.getElementById("appMenu").classList.remove("open");document.getElementById("appMenuBackdrop").classList.remove("open")}
-function toggleChapters(){document.body.classList.toggle("chapters-open")}
+function addCharacter(){let n=prompt("Nombre del personaje:");if(!n)return;state.characters.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
+function addPlace(){let n=prompt("Nombre del lugar:");if(!n)return;state.places.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
+function showAllNotes(){let a=[];state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)a.push(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}));alert(a.length?a.join("\\n\\n"):"No hay notas.")}
+function exportBackup(){
+  save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download=(state.title||"novela")+"_backup.json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
+}
 async function importDocx(file){
   if(!file)return;
   try{
-    if(!window.mammoth){
-      await new Promise((resolve,reject)=>{
-        const s=document.createElement("script");
-        s.src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js";
-        s.onload=resolve;s.onerror=reject;document.head.appendChild(s);
-      });
-    }
-    const buf=await file.arrayBuffer();
-    const result=await mammoth.convertToHtml({arrayBuffer:buf});
-    const div=document.createElement("div");div.innerHTML=result.value;
-    const chapters=[]; let current=null;
-    [...div.children].forEach(el=>{
-      const t=el.innerText.trim();
-      const isHeading=/^h[1-3]$/i.test(el.tagName) || /^cap[ií]tulo\b/i.test(t);
-      if(isHeading){current={name:t,html:"",notes:{}};chapters.push(current)}
-      else if(t){if(!current)current={name:"Capítulo 1",html:"",notes:{}};current.html+=el.outerHTML;if(!chapters.includes(current))chapters.push(current)}
+    if(!window.mammoth)await new Promise((res,rej)=>{let s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js";s.onload=res;s.onerror=rej;document.head.appendChild(s)});
+    let r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()}),d=document.createElement("div");d.innerHTML=r.value;
+    let chapters=[],cur=null;
+    [...d.children].forEach(el=>{
+      let t=el.innerText.trim(),heading=/^h[1-3]$/i.test(el.tagName)||/^cap[ií]tulo\\b/i.test(t);
+      if(heading){cur={name:t,html:"",notes:{}};chapters.push(cur)}
+      else if(t){if(!cur){cur={name:"Capítulo 1",html:"",notes:{}};chapters.push(cur)}cur.html+=el.outerHTML}
     });
-    if(!chapters.length)throw new Error("Sin contenido");
-    state.chapters=chapters;state.current=0;state.title=file.name.replace(/\.docx$/i,"")||"Mi novela";
-    localStorage.setItem(KEY,JSON.stringify(state));load();
-    alert("Word importado. Se detectaron "+chapters.length+" capítulo(s).");
-  }catch(e){alert("No se pudo importar el Word. Verificá que sea .docx y que tengas Internet durante la importación.")}
+    if(!chapters.length)throw Error("Sin contenido");
+    state.chapters=chapters;state.current=0;state.title=file.name.replace(/\\.docx$/i,"")||"Mi novela";state.history={};
+    localStorage.setItem(KEY,JSON.stringify(state));load();alert("Word importado: "+chapters.length+" capítulo(s).");
+  }catch(e){alert("No se pudo importar el Word. Usá un archivo .docx válido.")}
 }
+async function exportDocx(){
+  save();let body='<w:p><w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>'+esc(state.title)+'</w:t></w:r></w:p>';
+  state.chapters.forEach(c=>{
+    body+='<w:p><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>'+esc(c.name)+'</w:t></w:r></w:p>';
+    let d=document.createElement("div");d.innerHTML=c.html;d.querySelectorAll("p").forEach(p=>{let t=p.innerText.trim()||" ";body+='<w:p><w:r><w:t xml:space="preserve">'+esc(t)+'</w:t></w:r></w:p>'})
+  });
+  let notes=[];state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)notes.push(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}));
+  if(notes.length){body+='<w:p><w:r><w:rPr><w:b/><w:sz w:val="30"/></w:rPr><w:t>Notas de edición</w:t></w:r></w:p>';notes.forEach(n=>body+='<w:p><w:r><w:t>'+esc(n)+'</w:t></w:r></w:p>')}
+  let files={
+    "[Content_Types].xml":'<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    "_rels/.rels":'<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    "word/document.xml":'<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+body+'<w:sectPr/></w:body></w:document>'
+  };
+  let z=new SimpleZip(),blob=await z.blob(files),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=(state.title||"novela")+".docx";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
+}
+class SimpleZip{
+ async blob(files){
+  const e=new TextEncoder(),chunks=[],central=[];let off=0;
+  for(const [name,data] of Object.entries(files)){let b=e.encode(data),nb=e.encode(name),crc=crc32(b),h=new Uint8Array(30+nb.length),v=new DataView(h.buffer);v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);v.setUint32(14,crc,true);v.setUint32(18,b.length,true);v.setUint32(22,b.length,true);v.setUint16(26,nb.length,true);h.set(nb,30);chunks.push(h,b);let c=new Uint8Array(46+nb.length);v=new DataView(c.buffer);v.setUint32(0,0x02014b50,true);v.setUint16(4,20,true);v.setUint16(6,20,true);v.setUint32(16,crc,true);v.setUint32(20,b.length,true);v.setUint32(24,b.length,true);v.setUint16(28,nb.length,true);v.setUint32(42,off,true);c.set(nb,46);central.push(c);off+=h.length+b.length}
+  let cd=central.reduce((n,c)=>n+c.length,0),end=new Uint8Array(22),v=new DataView(end.buffer);v.setUint32(0,0x06054b50,true);v.setUint16(8,central.length,true);v.setUint16(10,central.length,true);v.setUint32(12,cd,true);v.setUint32(16,off,true);return new Blob([...chunks,...central,end],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"})
+ }
+}
+function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return(~c)>>>0}
 
+if(localStorage.getItem("escritor_night")==="1")document.body.classList.add("night");
 load();
+
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=7").catch(()=>{});
 </script>
-</body></html>
+</body>
+</html>

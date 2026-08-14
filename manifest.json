@@ -1,8 +1,7 @@
 {
   "name": "Escritor — Novela",
   "short_name": "Escritor",
-  "description": "Aplicación para escribir novelas con capítulos, notas y herramientas de organización.",
-  "start_url": "./index.html?v=6",
+  "start_url": "./index.html?v=7",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
