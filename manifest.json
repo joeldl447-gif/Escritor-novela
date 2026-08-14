@@ -1,9 +1,9 @@
 {
   "name": "Escritor — Novela",
   "short_name": "Escritor",
-  "description": "Editor de novelas con IA local, voz y grafo navegable con nodos móviles.",
-  "start_url": "./index.html?v=13",
-  "scope": ".//",
+  "description": "Editor de novelas con IA local, voz, grafo y análisis automático.",
+  "start_url": "./index.html?v=14",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#f4f5f7",

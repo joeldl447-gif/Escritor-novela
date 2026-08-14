@@ -120,6 +120,26 @@ body.night #appMenu .menu-title{border-color:#333}
 .night .graph-node,.night .graph-legend{background:#202020;color:#eee;border-color:#444}
 .night .graph-node small{color:#aaa}
 .night #graphHead{border-color:#333}
+
+/* V14 — análisis automático de novela */
+#analysisPanel{display:none;position:fixed;inset:58px 0 0;background:#fff;z-index:125;overflow:auto}
+.analysis-open #analysisPanel{display:block}
+#analysisPanel .analysis-inner{max-width:1000px;margin:auto;padding:18px}
+.analysis-head{display:flex;align-items:center;gap:8px;border-bottom:1px solid #ddd;padding-bottom:12px}
+.analysis-head h2{flex:1;margin:0;font-size:19px}
+.analysis-progress{height:8px;background:#e5e7eb;border-radius:10px;overflow:hidden;margin:12px 0}
+.analysis-progress>div{height:100%;width:0;background:#596b9d;transition:width .2s}
+.analysis-card{border:1px solid #ddd;border-radius:12px;padding:14px;margin:12px 0;background:#fafafa}
+.analysis-card h3{margin:0 0 8px}
+.analysis-item{padding:9px 0;border-top:1px solid #e3e3e3}
+.analysis-item:first-child{border-top:0}
+.analysis-tag{display:inline-block;font-size:11px;padding:4px 7px;border-radius:12px;background:#e7e9ee;margin-right:5px}
+.analysis-muted{color:#777;font-size:13px}
+.night #analysisPanel{background:#181818;color:#eee}
+.night .analysis-head{border-color:#333}
+.night .analysis-card{background:#202020;border-color:#444}
+.night .analysis-item{border-color:#333}
+.night .analysis-tag{background:#333}
 </style>
 </head>
 <body>
@@ -143,6 +163,7 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
   <button onclick="openAI();closeAppMenu()">🤖 Asistente IA y voz</button>
   <button onclick="openGraph();closeAppMenu()">🕸️ Conexiones</button>
+  <button onclick="openAnalysis();closeAppMenu()">🧠 Analizar novela</button>
 </nav>
 
 <section id="library" class="overlayPanel">
@@ -215,6 +236,20 @@ body.night #appMenu .menu-title{border-color:#333}
     <div id="graphZoom"><button onclick="graphZoomBy(1.2)">＋</button><button onclick="graphZoomBy(.83)">−</button><button onclick="graphResetView()">100%</button></div>
     <div class="graph-legend">📘 Capítulo &nbsp; 👤 Personaje &nbsp; 📍 Lugar<br>Las líneas muestran conexiones.</div>
     <div id="graphNodes"></div>
+  </div>
+</section>
+
+<section id="analysisPanel">
+  <div class="analysis-inner">
+    <div class="analysis-head">
+      <button class="icon" onclick="closeAnalysis()">←</button>
+      <h2>Análisis automático</h2>
+      <button onclick="analyzeNovel()">Analizar ahora</button>
+    </div>
+    <p class="analysis-muted">La aplicación analiza el texto que ya escribiste. No tenés que marcar escenas, personajes ni ubicaciones manualmente.</p>
+    <div class="analysis-progress"><div id="analysisBar"></div></div>
+    <div id="analysisStatus" class="analysis-muted">Todavía no se realizó un análisis.</div>
+    <div id="analysisResults"></div>
   </div>
 </section>
 <main>
@@ -757,6 +792,139 @@ graphCanvasEl.addEventListener("pointerup",graphPointerUp);
 graphCanvasEl.addEventListener("pointercancel",graphPointerUp);
 graphCanvasEl.addEventListener("wheel",graphWheel,{passive:false});
 
+
+
+const ANALYSIS_KEY="escritor_auto_analysis_v1";
+let analysisState=JSON.parse(localStorage.getItem(ANALYSIS_KEY)||"null")||{
+  entities:{characters:[],places:[],events:[],times:[]},relations:[],issues:[]
+};
+
+function openAnalysis(){
+  document.body.classList.add("analysis-open");
+  renderAnalysis();
+}
+function closeAnalysis(){document.body.classList.remove("analysis-open")}
+function normalize(s){return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
+function words(s){return s.split(/\s+/).filter(Boolean)}
+function addUnique(arr,obj,key){
+  if(!obj[key])return;
+  const k=normalize(obj[key]);
+  if(!arr.some(x=>normalize(x.name||x.label||"")===k))arr.push(obj);
+}
+function analyzeTextLocally(){
+  const chars=[...(state.characters||[])];
+  const places=[...(state.places||[])];
+  const entities={characters:[],places:[],events:[],times:[]},relations=[],issues=[];
+  const knownCharNames=chars.map(x=>x.name).filter(Boolean);
+  const knownPlaceNames=places.map(x=>x.name).filter(Boolean);
+
+  state.chapters.forEach((c,ci)=>{
+    const div=document.createElement("div");div.innerHTML=c.html;
+    [...div.querySelectorAll("p")].forEach((p,pi)=>{
+      const t=p.innerText.trim();if(!t)return;
+      const nt=normalize(t);
+
+      // Existing library entities are high-confidence.
+      knownCharNames.forEach(name=>{
+        if(nt.includes(normalize(name))){
+          addUnique(entities.characters,{name,source:`${c.name}, párrafo ${pi+1}`,confidence:"alta"},"name");
+        }
+      });
+      knownPlaceNames.forEach(name=>{
+        if(nt.includes(normalize(name))){
+          addUnique(entities.places,{name,source:`${c.name}, párrafo ${pi+1}`,confidence:"alta"},"name");
+        }
+      });
+
+      // Conservative automatic extraction of likely proper names:
+      // capitalized multiword/single names that are not sentence starts.
+      const matches=t.match(/(?<!^)(?<![.!?]\s)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})?/g)||[];
+      matches.forEach(name=>{
+        const clean=name.trim().replace(/[,:;.!?]+$/,"");
+        if(!/^(El|La|Los|Las|Un|Una|Una|Capítulo|Después|Entonces|Pero|Porque|Cuando|Como|Mientras)$/i.test(clean)
+          && !knownPlaceNames.some(x=>normalize(x)===normalize(clean))){
+          addUnique(entities.characters,{name:clean,source:`${c.name}, párrafo ${pi+1}`,confidence:"posible"},"name");
+        }
+      });
+
+      // Time/date clues.
+      const timeRx=/\b(?:a\s+las?\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:de la mañana|de la tarde|de la noche|h)?\b/gi;
+      [...t.matchAll(timeRx)].forEach(m=>entities.times.push({value:m[0],source:`${c.name}, párrafo ${pi+1}`}));
+
+      const dateRx=/\b(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/gi;
+      [...t.matchAll(dateRx)].forEach(m=>entities.times.push({value:m[0],source:`${c.name}, párrafo ${pi+1}`}));
+
+      // Simple event heuristic: sentences containing event verbs.
+      if(/\b(llegó|llego|salió|salio|entró|entro|conoció|conocio|murió|murio|nació|nacio|escapó|escapo|besó|besa|descubrió|descubrio|encontró|encontro|decidió|decidio|volvió|volvio|viajó|viajo)\b/i.test(t)){
+        entities.events.push({label:t.length>180?t.slice(0,180)+"…":t,source:`${c.name}, párrafo ${pi+1}`});
+      }
+    });
+
+    // Relationships based on co-occurrence in paragraphs.
+    const allNames=knownCharNames;
+    const ps=[...div.querySelectorAll("p")];
+    ps.forEach((p,pi)=>{
+      const found=allNames.filter(n=>normalize(p.innerText).includes(normalize(n)));
+      for(let a=0;a<found.length;a++)for(let b=a+1;b<found.length;b++){
+        const label=found[a]+" ↔ "+found[b];
+        if(!relations.some(r=>r.label===label))relations.push({label,source:`${c.name}, párrafo ${pi+1}`});
+      }
+    });
+  });
+
+  // Detect repeated possible ages for known character names.
+  const ageMap={};
+  state.chapters.forEach(c=>{
+    const div=document.createElement("div");div.innerHTML=c.html;
+    [...div.querySelectorAll("p")].forEach((p,pi)=>{
+      const t=p.innerText;
+      knownCharNames.forEach(n=>{
+        if(normalize(t).includes(normalize(n))){
+          const re=new RegExp(normalize(n).replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"[^.]{0,80}\\b(\\d{1,3})\\s+años?\\b","i");
+          const m=normalize(t).match(re);
+          if(m)(ageMap[n]||(ageMap[n]=[])).push({age:m[1],source:`${c.name}, párrafo ${pi+1}`});
+        }
+      });
+    });
+  });
+  Object.entries(ageMap).forEach(([name,vals])=>{
+    const unique=[...new Set(vals.map(x=>x.age))];
+    if(unique.length>1)issues.push({type:"posible incongruencia",title:`Edad de ${name}`,detail:`Aparecen estas edades: ${unique.join(", ")}. Revisá si es intencional.`,refs:vals});
+  });
+
+  // Keep unique and bounded data.
+  entities.times=entities.times.slice(0,100);
+  entities.events=entities.events.slice(0,120);
+  analysisState={entities,relations,issues};
+  localStorage.setItem(ANALYSIS_KEY,JSON.stringify(analysisState));
+}
+async function analyzeNovel(){
+  $("analysisStatus").textContent="Analizando tu novela…";
+  $("analysisBar").style.width="20%";
+  await new Promise(r=>setTimeout(r,30));
+  analyzeTextLocally();
+  $("analysisBar").style.width="100%";
+  $("analysisStatus").textContent="Análisis terminado. Se usó el texto existente; no tuviste que etiquetar escenas.";
+  renderAnalysis();
+  // Refresh library and graph so detected entities become visible where possible.
+  renderLibrary();
+}
+function renderAnalysis(){
+  const r=$("analysisResults");if(!r)return;r.innerHTML="";
+  const make=(title,items,fmt)=>{
+    const d=document.createElement("div");d.className="analysis-card";
+    d.innerHTML="<h3>"+title+"</h3>";
+    if(!items.length){d.innerHTML+="<div class='analysis-muted'>Todavía no hay datos.</div>";}
+    else items.slice(0,100).forEach(x=>{let q=document.createElement("div");q.className="analysis-item";q.innerHTML=fmt(x);d.appendChild(q)});
+    r.appendChild(d);
+  };
+  make("👤 Personajes detectados",analysisState.entities.characters,x=>`<b>${esc(x.name)}</b> <span class="analysis-tag">${esc(x.confidence)}</span><br><span class="analysis-muted">${esc(x.source)}</span>`);
+  make("📍 Lugares detectados",analysisState.entities.places,x=>`<b>${esc(x.name)}</b> <span class="analysis-tag">${esc(x.confidence)}</span><br><span class="analysis-muted">${esc(x.source)}</span>`);
+  make("🎬 Acontecimientos",analysisState.entities.events,x=>`<span>${esc(x.label)}</span><br><span class="analysis-muted">${esc(x.source)}</span>`);
+  make("🕒 Fechas y horarios",analysisState.entities.times,x=>`<b>${esc(x.value)}</b> — <span class="analysis-muted">${esc(x.source)}</span>`);
+  make("🔗 Relaciones detectadas",analysisState.relations,x=>`<b>${esc(x.label)}</b> — <span class="analysis-muted">${esc(x.source)}</span>`);
+  make("⚠️ Posibles incongruencias",analysisState.issues,x=>`<b>${esc(x.title)}</b><br>${esc(x.detail)}<br><span class="analysis-muted">${x.refs.map(y=>esc(y.source)+": "+esc(y.age)+" años").join(" · ")}</span>`);
+}
 
 function exportBackup(){
   save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");

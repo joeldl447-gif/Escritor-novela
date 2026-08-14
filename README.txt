@@ -1,8 +1,9 @@
-V13 — NODOS ARRASTRABLES
-- Arrastrá cualquier nodo del grafo con un dedo o mouse.
-- El nodo se mueve sin mover el lienzo.
-- Las líneas se actualizan mientras se mueve.
-- El espacio sigue pudiéndose desplazar arrastrando una zona vacía.
-- Pellizco para zoom.
-- Reordenar vuelve a generar la distribución.
-- Se conserva todo lo de V12 y anteriores.
+V14 — ANÁLISIS AUTOMÁTICO
+- Analiza el texto existente sin exigir etiquetar escenas.
+- Detecta personajes y lugares de forma conservadora.
+- Detecta acontecimientos, horarios/fechas y relaciones por co-ocurrencia.
+- Detecta posibles contradicciones de edad cuando aparecen valores distintos.
+- Guarda el análisis localmente.
+- Se puede ejecutar desde ☰ → 🧠 Analizar novela.
+- Mantiene IA local, voz, grafo navegable, nodos arrastrables, notas, Word, biblioteca, búsqueda y demás funciones.
+NOTA: esta primera capa de análisis es heurística/local; no debe tratarse como una fuente infalible. Las entidades marcadas "posible" requieren revisión.
