@@ -1,10 +1,6 @@
-V5
-- Biblioteca de novela.
-- Búsqueda global.
-- Modo concentración.
-- Estadísticas de capítulo y novela.
-- Personajes y lugares.
-- Panel de notas.
-- Copia de seguridad JSON.
-- Historial interno de hasta 20 snapshots por capítulo.
-- Mantiene V4: modo nocturno, eliminación de capítulos con dos confirmaciones, importar/exportar Word y notas por párrafo.
+V6
+- Menú vertical principal accesible desde ☰.
+- Se eliminaron los botones pequeños que ocupaban la barra superior.
+- Todas las acciones nuevas quedan dentro del menú vertical.
+- Se conserva capítulos, importar/exportar Word, notas, modo nocturno, biblioteca, búsqueda, concentración y copia de seguridad.
+- Nueva caché v6 sin necesidad de borrar datos de Chrome.
