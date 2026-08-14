@@ -101,7 +101,11 @@ body.night #appMenu .menu-title{border-color:#333}
 .graph-open #graphPanel{display:block}
 #graphHead{height:54px;background:#fff;border-bottom:1px solid #ddd;display:flex;align-items:center;gap:8px;padding:8px 12px;position:relative;z-index:5}
 #graphHead h2{margin:0;flex:1;font-size:18px}
-#graphCanvas{position:absolute;inset:54px 0 0;overflow:hidden;touch-action:none}
+#graphCanvas{position:absolute;inset:54px 0 0;overflow:hidden;touch-action:none;cursor:grab}
+#graphCanvas.panning{cursor:grabbing}
+#graphZoom{position:absolute;left:12px;bottom:12px;z-index:6;display:flex;gap:6px;background:#fff;border:1px solid #ddd;border-radius:10px;padding:6px}
+#graphZoom button{min-width:42px;font-size:18px}
+#graphHint{position:absolute;left:12px;top:12px;z-index:4;background:#fff;border:1px solid #ddd;border-radius:10px;padding:8px;font-size:12px;color:#666}
 #graphSvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .graph-node{position:absolute;min-width:130px;max-width:190px;padding:10px 12px;border:1px solid #cfd5df;border-radius:12px;background:#fff;box-shadow:0 4px 14px #0001;cursor:pointer;user-select:none}
 .graph-node strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -206,6 +210,8 @@ body.night #appMenu .menu-title{border-color:#333}
   </div>
   <div id="graphCanvas">
     <svg id="graphSvg"></svg>
+    <div id="graphHint">Arrastrá el espacio para desplazarte · pellizcá para zoom</div>
+    <div id="graphZoom"><button onclick="graphZoomBy(1.2)">＋</button><button onclick="graphZoomBy(.83)">−</button><button onclick="graphResetView()">100%</button></div>
     <div class="graph-legend">📘 Capítulo &nbsp; 👤 Personaje &nbsp; 📍 Lugar<br>Las líneas muestran conexiones.</div>
     <div id="graphNodes"></div>
   </div>
@@ -591,6 +597,13 @@ function buildGraphData(){
   edges.forEach(([a,b])=>{if(a===b)return;let k=[a,b].sort().join("|");if(!es.has(k)){es.add(k);unique.push([a,b])}});
   graphData={nodes,edges:unique};
 }
+
+let graphView={x:0,y:0,scale:1};
+let graphBasePos={};
+let graphPointers=new Map();
+let graphPanStart=null;
+let graphPinchStart=null;
+
 function graphAutoLayout(){
   const c=$("graphCanvas"),w=c.clientWidth,h=c.clientHeight;
   buildGraphData();
@@ -598,27 +611,117 @@ function graphAutoLayout(){
   const chapters=graphData.nodes.filter(n=>n.type==="chapter");
   const others=graphData.nodes.filter(n=>n.type!=="chapter");
   const pos={};
-  chapters.forEach((n,i)=>{let a=(i/Math.max(1,chapters.length))*Math.PI*2;pos[n.id]={x:center.x+Math.cos(a)*Math.min(280,w*.28),y:center.y+Math.sin(a)*Math.min(180,h*.28)}});
-  others.forEach((n,i)=>{let a=(i/Math.max(1,others.length))*Math.PI*2;pos[n.id]={x:center.x+Math.cos(a)*Math.min(430,w*.42),y:center.y+Math.sin(a)*Math.min(260,h*.38)}});
-  drawGraph(pos);
+  chapters.forEach((n,i)=>{
+    let a=(i/Math.max(1,chapters.length))*Math.PI*2;
+    pos[n.id]={x:center.x+Math.cos(a)*Math.min(280,w*.28),y:center.y+Math.sin(a)*Math.min(180,h*.28)}
+  });
+  others.forEach((n,i)=>{
+    let a=(i/Math.max(1,others.length))*Math.PI*2;
+    pos[n.id]={x:center.x+Math.cos(a)*Math.min(430,w*.42),y:center.y+Math.sin(a)*Math.min(260,h*.38)}
+  });
+  graphBasePos=pos;
+  graphView={x:0,y:0,scale:1};
+  drawGraph();
 }
-function graphCenter(){graphAutoLayout()}
-function drawGraph(pos){
-  const svg=$("graphSvg"),box=$("graphNodes");svg.innerHTML="";box.innerHTML="";
-  const c=$("graphCanvas"),w=c.clientWidth,h=c.clientHeight;
+function graphCenter(){
+  const c=$("graphCanvas");
+  const xs=Object.values(graphBasePos).map(p=>p.x),ys=Object.values(graphBasePos).map(p=>p.y);
+  if(!xs.length){graphAutoLayout();return}
+  const cx=(Math.min(...xs)+Math.max(...xs))/2,cy=(Math.min(...ys)+Math.max(...ys))/2;
+  graphView.x=c.clientWidth/2-cx*graphView.scale;
+  graphView.y=c.clientHeight/2-cy*graphView.scale;
+  drawGraph();
+}
+function graphResetView(){graphView={x:0,y:0,scale:1};graphCenter()}
+function graphZoomBy(factor,anchorX,anchorY){
+  const c=$("graphCanvas");
+  const ax=anchorX??c.clientWidth/2,ay=anchorY??c.clientHeight/2;
+  const old=graphView.scale;
+  const next=Math.max(.35,Math.min(2.5,old*factor));
+  if(next===old)return;
+  // Keep the point under the cursor/finger fixed while zooming.
+  graphView.x=ax-(ax-graphView.x)*(next/old);
+  graphView.y=ay-(ay-graphView.y)*(next/old);
+  graphView.scale=next;
+  drawGraph();
+}
+function graphScreen(p){
+  return {x:p.x*graphView.scale+graphView.x,y:p.y*graphView.scale+graphView.y};
+}
+function drawGraph(){
+  const svg=$("graphSvg"),box=$("graphNodes"),c=$("graphCanvas");
+  svg.innerHTML="";box.innerHTML="";
+  const w=c.clientWidth,h=c.clientHeight;
   svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
   graphData.edges.forEach(([a,b])=>{
-    if(!pos[a]||!pos[b])return;
+    if(!graphBasePos[a]||!graphBasePos[b])return;
+    const A=graphScreen(graphBasePos[a]),B=graphScreen(graphBasePos[b]);
     const line=document.createElementNS("http://www.w3.org/2000/svg","line");
-    line.setAttribute("x1",pos[a].x);line.setAttribute("y1",pos[a].y);line.setAttribute("x2",pos[b].x);line.setAttribute("y2",pos[b].y);
-    line.setAttribute("stroke",document.body.classList.contains("night")?"#666":"#aab2bf");line.setAttribute("stroke-width","2");svg.appendChild(line);
+    line.setAttribute("x1",A.x);line.setAttribute("y1",A.y);line.setAttribute("x2",B.x);line.setAttribute("y2",B.y);
+    line.setAttribute("stroke",document.body.classList.contains("night")?"#666":"#aab2bf");
+    line.setAttribute("stroke-width",Math.max(1,2*graphView.scale));svg.appendChild(line);
   });
   graphData.nodes.forEach(n=>{
+    const p=graphScreen(graphBasePos[n.id]);
     let d=document.createElement("div");d.className="graph-node "+n.type;
-    d.style.left=(pos[n.id].x-70)+"px";d.style.top=(pos[n.id].y-28)+"px";
+    d.style.left=(p.x-70)+"px";d.style.top=(p.y-28)+"px";
+    d.style.transform=`scale(${graphView.scale})`;
+    d.style.transformOrigin="center center";
     d.innerHTML="<strong>"+esc(n.label)+"</strong><small>"+esc(n.meta||"")+"</small>";
-    d.onclick=()=>graphNodeClick(n);box.appendChild(d);
+    d.onclick=(e)=>{if(Math.hypot((e.clientX-(graphPanStart?.x||e.clientX)),(e.clientY-(graphPanStart?.y||e.clientY)))<8)graphNodeClick(n)};
+    box.appendChild(d);
   });
+}
+function graphPointerDown(e){
+  if(e.target.closest(".graph-node") && graphPointers.size===0)return;
+  graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(graphPointers.size===1){
+    graphPanStart={x:e.clientX,y:e.clientY,viewX:graphView.x,viewY:graphView.y};
+    $("graphCanvas").classList.add("panning");
+    $("graphCanvas").setPointerCapture?.(e.pointerId);
+  }else if(graphPointers.size===2){
+    const pts=[...graphPointers.values()];
+    graphPinchStart={
+      dist:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),
+      scale:graphView.scale
+    };
+  }
+}
+function graphPointerMove(e){
+  if(!graphPointers.has(e.pointerId))return;
+  graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(graphPointers.size===1 && graphPanStart){
+    graphView.x=graphPanStart.viewX+(e.clientX-graphPanStart.x);
+    graphView.y=graphPanStart.viewY+(e.clientY-graphPanStart.y);
+    drawGraph();
+  }else if(graphPointers.size===2 && graphPinchStart){
+    const pts=[...graphPointers.values()];
+    const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+    const factor=dist/graphPinchStart.dist;
+    const old=graphView.scale;
+    const next=Math.max(.35,Math.min(2.5,graphPinchStart.scale*factor));
+    const mx=(pts[0].x+pts[1].x)/2-$("graphCanvas").getBoundingClientRect().left;
+    const my=(pts[0].y+pts[1].y)/2-$("graphCanvas").getBoundingClientRect().top;
+    graphView.x=mx-(mx-graphView.x)*(next/old);
+    graphView.y=my-(my-graphView.y)*(next/old);
+    graphView.scale=next;drawGraph();
+  }
+}
+function graphPointerUp(e){
+  graphPointers.delete(e.pointerId);
+  if(graphPointers.size===0){
+    graphPanStart=null;graphPinchStart=null;
+    $("graphCanvas").classList.remove("panning");
+  }else if(graphPointers.size===1){
+    const p=[...graphPointers.values()][0];
+    graphPanStart={x:p.x,y:p.y,viewX:graphView.x,viewY:graphView.y};
+    graphPinchStart=null;
+  }
+}
+function graphWheel(e){
+  e.preventDefault();
+  const r=$("graphCanvas").getBoundingClientRect();
+  graphZoomBy(e.deltaY<0?1.12:.89,e.clientX-r.left,e.clientY-r.top);
 }
 function graphNodeClick(n){
   if(n.type==="chapter"){state.current=Number(n.id.split(":")[1]);load();closeGraph();return}
@@ -626,6 +729,13 @@ function graphNodeClick(n){
 }
 function renderGraph(){graphAutoLayout()}
 window.addEventListener("resize",()=>{if(document.body.classList.contains("graph-open"))graphAutoLayout()});
+const graphCanvasEl=$("graphCanvas");
+graphCanvasEl.addEventListener("pointerdown",graphPointerDown);
+graphCanvasEl.addEventListener("pointermove",graphPointerMove);
+graphCanvasEl.addEventListener("pointerup",graphPointerUp);
+graphCanvasEl.addEventListener("pointercancel",graphPointerUp);
+graphCanvasEl.addEventListener("wheel",graphWheel,{passive:false});
+
 
 function exportBackup(){
   save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");
