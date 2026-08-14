@@ -95,6 +95,26 @@ body.night #appMenu .menu-title{border-color:#333}
  #aiSettings.mobile-open{display:block}
  .ai-msg{margin-left:4px;margin-right:4px}
 }
+
+/* V11 — Grafo de conexiones */
+#graphPanel{display:none;position:fixed;inset:58px 0 0;background:#f7f8fa;z-index:120;overflow:hidden}
+.graph-open #graphPanel{display:block}
+#graphHead{height:54px;background:#fff;border-bottom:1px solid #ddd;display:flex;align-items:center;gap:8px;padding:8px 12px;position:relative;z-index:5}
+#graphHead h2{margin:0;flex:1;font-size:18px}
+#graphCanvas{position:absolute;inset:54px 0 0;overflow:hidden;touch-action:none}
+#graphSvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.graph-node{position:absolute;min-width:130px;max-width:190px;padding:10px 12px;border:1px solid #cfd5df;border-radius:12px;background:#fff;box-shadow:0 4px 14px #0001;cursor:pointer;user-select:none}
+.graph-node strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.graph-node small{display:block;color:#777;margin-top:3px}
+.graph-node.chapter{border-left:4px solid #596b9d}
+.graph-node.character{border-left:4px solid #9b6b4d}
+.graph-node.place{border-left:4px solid #5b8b68}
+.graph-node.tag{border-left:4px solid #8a6ba8}
+.graph-legend{position:absolute;right:12px;top:10px;background:#fff;border:1px solid #ddd;border-radius:10px;padding:8px;font-size:12px;z-index:4}
+.night #graphPanel,.night #graphHead{background:#151515;color:#eee}
+.night .graph-node,.night .graph-legend{background:#202020;color:#eee;border-color:#444}
+.night .graph-node small{color:#aaa}
+.night #graphHead{border-color:#333}
 </style>
 </head>
 <body>
@@ -117,6 +137,7 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
   <button onclick="openAI();closeAppMenu()">🤖 Asistente IA y voz</button>
+  <button onclick="openGraph();closeAppMenu()">🕸️ Conexiones</button>
 </nav>
 
 <section id="library" class="overlayPanel">
@@ -174,6 +195,20 @@ body.night #appMenu .menu-title{border-color:#333}
     <button onclick="readCurrentChapter()">🔊 Leer capítulo actual</button>
     <button onclick="stopSpeaking()">⏹ Detener lectura</button>
   </aside>
+</section>
+
+<section id="graphPanel">
+  <div id="graphHead">
+    <button class="icon" onclick="closeGraph()">←</button>
+    <h2>Conexiones de la novela</h2>
+    <button onclick="graphAutoLayout()">Reordenar</button>
+    <button onclick="graphCenter()">Centrar</button>
+  </div>
+  <div id="graphCanvas">
+    <svg id="graphSvg"></svg>
+    <div class="graph-legend">📘 Capítulo &nbsp; 👤 Personaje &nbsp; 📍 Lugar<br>Las líneas muestran conexiones.</div>
+    <div id="graphNodes"></div>
+  </div>
 </section>
 <main>
   <aside id="chapters">
@@ -507,6 +542,91 @@ ${context}`;
     addAIMessage("assistant","La IA local tuvo un problema: "+e.message);
   }finally{$("aiStatus").textContent="IA local gratuita"}
 }
+
+let graphData={nodes:[],edges:[]};
+
+function openGraph(){document.body.classList.add("graph-open");renderGraph()}
+function closeGraph(){document.body.classList.remove("graph-open")}
+function nodeKey(type,id){return type+":"+id}
+function buildGraphData(){
+  const nodes=[],edges=[],seen=new Set();
+  const add=(type,id,label,meta)=>{
+    const key=nodeKey(type,id);if(seen.has(key))return key;
+    seen.add(key);nodes.push({id:key,type,label,meta});return key;
+  };
+  state.chapters.forEach((c,i)=>{
+    const ck=add("chapter",i,c.name,(textOf(c.html).split(/\s+/).filter(Boolean).length)+" palabras");
+    const txt=textOf(c.html);
+    (state.characters||[]).forEach((p,j)=>{
+      if(p.name && txt.toLowerCase().includes(p.name.toLowerCase())){
+        const pk=add("character",j,p.name,p.desc||"Personaje");
+        edges.push([ck,pk]);
+      }
+    });
+    (state.places||[]).forEach((p,j)=>{
+      if(p.name && txt.toLowerCase().includes(p.name.toLowerCase())){
+        const pk=add("place",j,p.name,p.desc||"Lugar");
+        edges.push([ck,pk]);
+      }
+    });
+    // Wiki-style links: [[Nombre]] create lightweight tag nodes if no entity exists.
+    const links=[...txt.matchAll(/\[\[([^\]]+)\]\]/g)].map(m=>m[1].trim()).filter(Boolean);
+    links.forEach((label)=>{
+      let idx=(state.characters||[]).findIndex(x=>x.name?.toLowerCase()===label.toLowerCase());
+      if(idx>=0){let k=add("character",idx,state.characters[idx].name,state.characters[idx].desc||"Personaje");edges.push([ck,k]);return}
+      idx=(state.places||[]).findIndex(x=>x.name?.toLowerCase()===label.toLowerCase());
+      if(idx>=0){let k=add("place",idx,state.places[idx].name,state.places[idx].desc||"Lugar");edges.push([ck,k]);return}
+      const tk=add("tag",label,label,"Enlace [[...]]");edges.push([ck,tk]);
+    });
+  });
+  // Connect characters and places when they share a chapter.
+  const chapterSets={};
+  state.chapters.forEach((c,ci)=>{
+    let txt=textOf(c.html).toLowerCase();
+    let chars=(state.characters||[]).map((p,j)=>p.name&&txt.includes(p.name.toLowerCase())?j:null).filter(x=>x!==null);
+    let places=(state.places||[]).map((p,j)=>p.name&&txt.includes(p.name.toLowerCase())?j:null).filter(x=>x!==null);
+    chars.forEach(a=>places.forEach(b=>edges.push([nodeKey("character",a),nodeKey("place",b)])));
+  });
+  const unique=[];const es=new Set();
+  edges.forEach(([a,b])=>{if(a===b)return;let k=[a,b].sort().join("|");if(!es.has(k)){es.add(k);unique.push([a,b])}});
+  graphData={nodes,edges:unique};
+}
+function graphAutoLayout(){
+  const c=$("graphCanvas"),w=c.clientWidth,h=c.clientHeight;
+  buildGraphData();
+  const center={x:w/2,y:h/2};
+  const chapters=graphData.nodes.filter(n=>n.type==="chapter");
+  const others=graphData.nodes.filter(n=>n.type!=="chapter");
+  const pos={};
+  chapters.forEach((n,i)=>{let a=(i/Math.max(1,chapters.length))*Math.PI*2;pos[n.id]={x:center.x+Math.cos(a)*Math.min(280,w*.28),y:center.y+Math.sin(a)*Math.min(180,h*.28)}});
+  others.forEach((n,i)=>{let a=(i/Math.max(1,others.length))*Math.PI*2;pos[n.id]={x:center.x+Math.cos(a)*Math.min(430,w*.42),y:center.y+Math.sin(a)*Math.min(260,h*.38)}});
+  drawGraph(pos);
+}
+function graphCenter(){graphAutoLayout()}
+function drawGraph(pos){
+  const svg=$("graphSvg"),box=$("graphNodes");svg.innerHTML="";box.innerHTML="";
+  const c=$("graphCanvas"),w=c.clientWidth,h=c.clientHeight;
+  svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
+  graphData.edges.forEach(([a,b])=>{
+    if(!pos[a]||!pos[b])return;
+    const line=document.createElementNS("http://www.w3.org/2000/svg","line");
+    line.setAttribute("x1",pos[a].x);line.setAttribute("y1",pos[a].y);line.setAttribute("x2",pos[b].x);line.setAttribute("y2",pos[b].y);
+    line.setAttribute("stroke",document.body.classList.contains("night")?"#666":"#aab2bf");line.setAttribute("stroke-width","2");svg.appendChild(line);
+  });
+  graphData.nodes.forEach(n=>{
+    let d=document.createElement("div");d.className="graph-node "+n.type;
+    d.style.left=(pos[n.id].x-70)+"px";d.style.top=(pos[n.id].y-28)+"px";
+    d.innerHTML="<strong>"+esc(n.label)+"</strong><small>"+esc(n.meta||"")+"</small>";
+    d.onclick=()=>graphNodeClick(n);box.appendChild(d);
+  });
+}
+function graphNodeClick(n){
+  if(n.type==="chapter"){state.current=Number(n.id.split(":")[1]);load();closeGraph();return}
+  if(n.type==="character"||n.type==="place"){openLibrary();closeGraph();return}
+}
+function renderGraph(){graphAutoLayout()}
+window.addEventListener("resize",()=>{if(document.body.classList.contains("graph-open"))graphAutoLayout()});
+
 function exportBackup(){
   save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");
   a.href=URL.createObjectURL(blob);a.download=(state.title||"novela")+"_backup.json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
