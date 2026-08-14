@@ -103,6 +103,7 @@ body.night #appMenu .menu-title{border-color:#333}
 #graphHead h2{margin:0;flex:1;font-size:18px}
 #graphCanvas{position:absolute;inset:54px 0 0;overflow:hidden;touch-action:none;cursor:grab}
 #graphCanvas.panning{cursor:grabbing}
+.graph-node{cursor:grab;touch-action:none}.graph-node:active{cursor:grabbing}
 #graphZoom{position:absolute;left:12px;bottom:12px;z-index:6;display:flex;gap:6px;background:#fff;border:1px solid #ddd;border-radius:10px;padding:6px}
 #graphZoom button{min-width:42px;font-size:18px}
 #graphHint{position:absolute;left:12px;top:12px;z-index:4;background:#fff;border:1px solid #ddd;border-radius:10px;padding:8px;font-size:12px;color:#666}
@@ -598,11 +599,13 @@ function buildGraphData(){
   graphData={nodes,edges:unique};
 }
 
+
 let graphView={x:0,y:0,scale:1};
 let graphBasePos={};
 let graphPointers=new Map();
 let graphPanStart=null;
 let graphPinchStart=null;
+let graphDragNode=null;
 
 function graphAutoLayout(){
   const c=$("graphCanvas"),w=c.clientWidth,h=c.clientHeight;
@@ -634,25 +637,20 @@ function graphCenter(){
 }
 function graphResetView(){graphView={x:0,y:0,scale:1};graphCenter()}
 function graphZoomBy(factor,anchorX,anchorY){
-  const c=$("graphCanvas");
-  const ax=anchorX??c.clientWidth/2,ay=anchorY??c.clientHeight/2;
-  const old=graphView.scale;
-  const next=Math.max(.35,Math.min(2.5,old*factor));
+  const c=$("graphCanvas"),ax=anchorX??c.clientWidth/2,ay=anchorY??c.clientHeight/2;
+  const old=graphView.scale,next=Math.max(.35,Math.min(2.5,old*factor));
   if(next===old)return;
-  // Keep the point under the cursor/finger fixed while zooming.
   graphView.x=ax-(ax-graphView.x)*(next/old);
   graphView.y=ay-(ay-graphView.y)*(next/old);
-  graphView.scale=next;
-  drawGraph();
+  graphView.scale=next;drawGraph();
 }
-function graphScreen(p){
-  return {x:p.x*graphView.scale+graphView.x,y:p.y*graphView.scale+graphView.y};
-}
+function graphScreen(p){return{x:p.x*graphView.scale+graphView.x,y:p.y*graphView.scale+graphView.y}}
+function graphWorld(x,y){return{x:(x-graphView.x)/graphView.scale,y:(y-graphView.y)/graphView.scale}}
+
 function drawGraph(){
   const svg=$("graphSvg"),box=$("graphNodes"),c=$("graphCanvas");
   svg.innerHTML="";box.innerHTML="";
-  const w=c.clientWidth,h=c.clientHeight;
-  svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
+  const w=c.clientWidth,h=c.clientHeight;svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
   graphData.edges.forEach(([a,b])=>{
     if(!graphBasePos[a]||!graphBasePos[b])return;
     const A=graphScreen(graphBasePos[a]),B=graphScreen(graphBasePos[b]);
@@ -663,17 +661,27 @@ function drawGraph(){
   });
   graphData.nodes.forEach(n=>{
     const p=graphScreen(graphBasePos[n.id]);
-    let d=document.createElement("div");d.className="graph-node "+n.type;
+    let d=document.createElement("div");d.className="graph-node "+n.type;d.dataset.nodeId=n.id;
     d.style.left=(p.x-70)+"px";d.style.top=(p.y-28)+"px";
-    d.style.transform=`scale(${graphView.scale})`;
-    d.style.transformOrigin="center center";
+    d.style.transform=`scale(${graphView.scale})`;d.style.transformOrigin="center center";
     d.innerHTML="<strong>"+esc(n.label)+"</strong><small>"+esc(n.meta||"")+"</small>";
-    d.onclick=(e)=>{if(Math.hypot((e.clientX-(graphPanStart?.x||e.clientX)),(e.clientY-(graphPanStart?.y||e.clientY)))<8)graphNodeClick(n)};
+    d.addEventListener("pointerdown",e=>graphNodePointerDown(e,n));
+    d.addEventListener("click",e=>{if(!d.dataset.moved)graphNodeClick(n);d.dataset.moved=""});
     box.appendChild(d);
   });
 }
+
+function graphNodePointerDown(e,n){
+  e.stopPropagation();
+  const d=e.currentTarget;
+  graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  graphDragNode={id:n.id,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,
+    origX:graphBasePos[n.id].x,origY:graphBasePos[n.id].y,el:d,moved:false};
+  d.setPointerCapture?.(e.pointerId);
+  d.style.cursor="grabbing";
+}
 function graphPointerDown(e){
-  if(e.target.closest(".graph-node") && graphPointers.size===0)return;
+  if(e.target.closest(".graph-node"))return;
   graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(graphPointers.size===1){
     graphPanStart={x:e.clientX,y:e.clientY,viewX:graphView.x,viewY:graphView.y};
@@ -681,13 +689,22 @@ function graphPointerDown(e){
     $("graphCanvas").setPointerCapture?.(e.pointerId);
   }else if(graphPointers.size===2){
     const pts=[...graphPointers.values()];
-    graphPinchStart={
-      dist:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),
-      scale:graphView.scale
-    };
+    graphPinchStart={dist:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),scale:graphView.scale};
+    graphPanStart=null;
   }
 }
 function graphPointerMove(e){
+  if(graphDragNode && graphDragNode.pointerId===e.pointerId){
+    const dx=(e.clientX-graphDragNode.startX)/graphView.scale;
+    const dy=(e.clientY-graphDragNode.startY)/graphView.scale;
+    if(Math.hypot(dx,dy)>4)graphDragNode.moved=true;
+    graphBasePos[graphDragNode.id].x=graphDragNode.origX+dx;
+    graphBasePos[graphDragNode.id].y=graphDragNode.origY+dy;
+    drawGraph();
+    const node=document.querySelector(`[data-node-id="${CSS.escape(graphDragNode.id)}"]`);
+    if(node)node.dataset.moved=graphDragNode.moved?"1":"";
+    return;
+  }
   if(!graphPointers.has(e.pointerId))return;
   graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(graphPointers.size===1 && graphPanStart){
@@ -697,25 +714,29 @@ function graphPointerMove(e){
   }else if(graphPointers.size===2 && graphPinchStart){
     const pts=[...graphPointers.values()];
     const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
-    const factor=dist/graphPinchStart.dist;
-    const old=graphView.scale;
+    const factor=dist/graphPinchStart.dist,old=graphView.scale;
     const next=Math.max(.35,Math.min(2.5,graphPinchStart.scale*factor));
-    const mx=(pts[0].x+pts[1].x)/2-$("graphCanvas").getBoundingClientRect().left;
-    const my=(pts[0].y+pts[1].y)/2-$("graphCanvas").getBoundingClientRect().top;
-    graphView.x=mx-(mx-graphView.x)*(next/old);
-    graphView.y=my-(my-graphView.y)*(next/old);
+    const r=$("graphCanvas").getBoundingClientRect();
+    const mx=(pts[0].x+pts[1].x)/2-r.left,my=(pts[0].y+pts[1].y)/2-r.top;
+    graphView.x=mx-(mx-graphView.x)*(next/old);graphView.y=my-(my-graphView.y)*(next/old);
     graphView.scale=next;drawGraph();
   }
 }
 function graphPointerUp(e){
+  if(graphDragNode && graphDragNode.pointerId===e.pointerId){
+    const moved=graphDragNode.moved;
+    graphDragNode.el.style.cursor="";
+    graphDragNode=null;
+    graphPointers.delete(e.pointerId);
+    if(moved)e.preventDefault();
+    return;
+  }
   graphPointers.delete(e.pointerId);
   if(graphPointers.size===0){
-    graphPanStart=null;graphPinchStart=null;
-    $("graphCanvas").classList.remove("panning");
+    graphPanStart=null;graphPinchStart=null;$("graphCanvas").classList.remove("panning");
   }else if(graphPointers.size===1){
     const p=[...graphPointers.values()][0];
-    graphPanStart={x:p.x,y:p.y,viewX:graphView.x,viewY:graphView.y};
-    graphPinchStart=null;
+    graphPanStart={x:p.x,y:p.y,viewX:graphView.x,viewY:graphView.y};graphPinchStart=null;
   }
 }
 function graphWheel(e){
