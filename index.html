@@ -144,12 +144,13 @@ body.night #appMenu .menu-title{border-color:#333}
     <div class="ai-head">
       <button class="icon" onclick="closeAI()">←</button>
       <h2>Asistente de tu novela</h2>
-      <span id="aiStatus" class="ai-status">Configurá tu IA</span>
+      <span id="aiStatus" class="ai-status">IA local gratuita</span>
       <button onclick="toggleAISettings()">⚙️</button><button onclick="speakLast()">🔊</button>
     </div>
     <div id="aiChat">
       <div id="aiWelcome">
         <b>Podés hablarme sobre tu novela.</b><br><br>
+<span class="ai-status">La IA funciona localmente en tu navegador. La primera vez necesita descargar el modelo.</span><br><br>
         Ejemplos:<br>
         “Leé el capítulo 2 en voz alta.”<br>
         “¿Dónde aparece Mabel?”<br>
@@ -165,13 +166,10 @@ body.night #appMenu .menu-title{border-color:#333}
     </div>
   </div>
   <aside id="aiSettings">
-    <h3>⚙️ Configurar IA</h3><p class="ai-status">Acá pegás tu clave de API. No me la mandes por el chat.</p>
-    <label>Clave de API</label>
-    <input id="aiKey" type="password" placeholder="sk-..." autocomplete="off">
-    <label>Modelo</label>
-    <input id="aiModel" value="gpt-5.4" placeholder="Modelo de IA">
-    <button onclick="saveAISettings()">Guardar</button>
-    <p class="ai-status">La clave se guarda solamente en este dispositivo. No se sube a GitHub. Para una seguridad máxima, lo ideal es usar un servidor intermedio.</p>
+    <h3>⚙️ IA local gratuita</h3>
+    <p class="ai-status">Esta versión no usa API de pago ni necesita clave. El modelo se descarga una vez y después se ejecuta en el navegador.</p>
+    <button onclick="loadLocalAI()">🧠 Preparar IA local</button>
+    <div id="localAIProgress" class="ai-status" style="margin-top:10px">IA local no cargada.</div>
     <hr>
     <button onclick="readCurrentChapter()">🔊 Leer capítulo actual</button>
     <button onclick="stopSpeaking()">⏹ Detener lectura</button>
@@ -336,42 +334,36 @@ function addCharacter(){let n=prompt("Nombre del personaje:");if(!n)return;state
 function addPlace(){let n=prompt("Nombre del lugar:");if(!n)return;state.places.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
 function showAllNotes(){let a=[];state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)a.push(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}));alert(a.length?a.join("\\n\\n"):"No hay notas.")}
 
-const AIKEY="escritor_ai_key";
-const AIMODEL="escritor_ai_model";
-let lastAIResponse="";
-let recognition=null;
 
-function toggleAISettings(){
-  const s=$("aiSettings");
-  if(window.innerWidth<=800)s.classList.toggle("mobile-open");
-  else s.style.display=(s.style.display==="none"?"block":"");
-  $("aiKey").value=localStorage.getItem(AIKEY)||"";
-  $("aiModel").value=localStorage.getItem(AIMODEL)||"gpt-5.4";
+const LOCAL_MODEL="onnx-community/Qwen2.5-0.5B-Instruct";
+let localGenerator=null, localLoading=false, lastAIResponse="", recognition=null;
+
+async function getTransformers(){
+  if(window.__transformersModule)return window.__transformersModule;
+  window.__transformersModule=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.0.1");
+  return window.__transformersModule;
 }
 function openAI(){
   document.body.classList.add("ai-open");
-  $("aiKey").value=localStorage.getItem(AIKEY)||"";
-  $("aiModel").value=localStorage.getItem(AIMODEL)||"gpt-5.4";
   updateAIStatus();
 }
 function closeAI(){document.body.classList.remove("ai-open");stopSpeaking()}
-function saveAISettings(){
-  localStorage.setItem(AIKEY,$("aiKey").value.trim());
-  localStorage.setItem(AIMODEL,$("aiModel").value.trim()||"gpt-5.4");
-  updateAIStatus();
-  if(window.innerWidth<=800)$("aiSettings").classList.remove("mobile-open");
+function toggleAISettings(){
+  const s=$("aiSettings");
+  if(innerWidth<=800)s.classList.toggle("mobile-open");
+  else s.style.display=(s.style.display==="none"?"block":"");
 }
 function updateAIStatus(){
-  let ok=!!localStorage.getItem(AIKEY);
-  $("aiStatus").textContent=ok?"IA configurada":"Falta configurar la IA";
+  $("aiStatus").textContent=localGenerator?"IA local lista":"IA local gratuita";
 }
 function addAIMessage(role,text){
-  let d=document.createElement("div");d.className="ai-msg "+(role==="user"?"ai-user":"ai-assistant");d.textContent=text;
-  $("aiChat").appendChild(d);$("aiChat").scrollTop=$("aiChat").scrollHeight;
+  let d=document.createElement("div");
+  d.className="ai-msg "+(role==="user"?"ai-user":"ai-assistant");
+  d.textContent=text;$("aiChat").appendChild(d);$("aiChat").scrollTop=$("aiChat").scrollHeight;
 }
 function startVoiceInput(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){alert("Este navegador no ofrece reconocimiento de voz. Probá Chrome en Android.");return}
+  if(!SR){alert("Chrome de Android no habilitó reconocimiento de voz en este momento.");return}
   if(recognition){recognition.stop();recognition=null;return}
   recognition=new SR();recognition.lang="es-AR";recognition.interimResults=true;recognition.continuous=false;
   recognition.onresult=e=>{$("aiInput").value=Array.from(e.results).map(r=>r[0].transcript).join("")};
@@ -382,76 +374,139 @@ function startVoiceInput(){
 function speakText(text){
   stopSpeaking();
   if(!("speechSynthesis" in window)){alert("Este navegador no ofrece lectura en voz alta.");return}
-  let u=new SpeechSynthesisUtterance(text);u.lang="es-AR";u.rate=0.95;
-  speechSynthesis.speak(u);
+  const u=new SpeechSynthesisUtterance(text);u.lang="es-AR";u.rate=0.95;speechSynthesis.speak(u);
 }
 function stopSpeaking(){if("speechSynthesis" in window)speechSynthesis.cancel()}
 function speakLast(){if(lastAIResponse)speakText(lastAIResponse)}
 function readCurrentChapter(){
-  let c=state.chapters[state.current],txt=textOf(c.html);
+  const c=state.chapters[state.current],txt=textOf(c.html);
   if(!txt){alert("El capítulo está vacío.");return}
   speakText(txt);
 }
-function getNovelContext(query){
-  const q=query.toLowerCase();
-  let results=[];
-  state.chapters.forEach((c,ci)=>{
-    let div=document.createElement("div");div.innerHTML=c.html;
-    let ps=[...div.querySelectorAll("p")];
-    ps.forEach((p,pi)=>{
-      let t=p.innerText||"";
-      if(!q || t.toLowerCase().includes(q)) results.push({chapter:c.name,index:pi+1,text:t});
-    });
+function novelIndex(){
+  return state.chapters.map((c,i)=>{
+    let d=document.createElement("div");d.innerHTML=c.html;
+    let ps=[...d.querySelectorAll("p")];
+    return {i,name:c.name,paragraphs:ps.map((p,j)=>({j,text:p.innerText.trim()}))};
   });
-  if(results.length>80)results=results.slice(0,80);
-  let headings=state.chapters.map((c,i)=>`${i+1}. ${c.name} (${textOf(c.html).split(/\s+/).filter(Boolean).length} palabras)`).join("\n");
-  let context="ÍNDICE DE LA NOVELA:\n"+headings+"\n\n";
-  if(results.length){
-    context+="FRAGMENTOS RELEVANTES:\n"+results.map(r=>`[${r.chapter} — párrafo ${r.index}]\n${r.text}`).join("\n\n");
+}
+function findMatches(q){
+  const terms=q.toLowerCase().split(/\s+/).filter(x=>x.length>2);
+  let hits=[];
+  novelIndex().forEach(c=>c.paragraphs.forEach(p=>{
+    const t=p.text.toLowerCase();
+    const score=terms.reduce((n,w)=>n+(t.includes(w)?1:0),0);
+    if(score)hits.push({score,chapter:c.name,ci:c.i,paragraph:p.j+1,text:p.text});
+  }));
+  return hits.sort((a,b)=>b.score-a.score);
+}
+function getContext(q){
+  const hits=findMatches(q).slice(0,40);
+  let context="ÍNDICE:\n"+state.chapters.map((c,i)=>`${i+1}. ${c.name}`).join("\n")+"\n\n";
+  if(hits.length){
+    context+="FRAGMENTOS RELEVANTES:\n"+hits.map(h=>`[${h.chapter} — párrafo ${h.paragraph}]\n${h.text}`).join("\n\n");
   }else{
-    context+="CAPÍTULO ACTUAL:\n"+state.chapters[state.current].name+"\n"+textOf(state.chapters[state.current].html).slice(0,14000);
+    context+="CAPÍTULO ACTUAL:\n"+state.chapters[state.current].name+"\n"+textOf(state.chapters[state.current].html).slice(0,12000);
   }
   return context;
 }
-function detectChapterRequest(q){
-  let m=q.match(/cap[ií]tulo\s+(\d+)/i);
-  return m?Number(m[1])-1:null;
+function localSearchAnswer(q){
+  const hits=findMatches(q);
+  const ql=q.toLowerCase();
+  if(/d[oó]nde.*aparece|en qu[eé].*aparece|d[oó]nde.*sale|en qu[eé].*sale/.test(ql) && hits.length){
+    const unique=hits.slice(0,15).map(h=>`${h.chapter}, párrafo ${h.paragraph}`).filter((x,i,a)=>a.indexOf(x)===i);
+    return "Encontré estas apariciones:\n\n"+unique.join("\n");
+  }
+  if(/qu[eé].*personajes|personajes.*cap[ií]tulo/.test(ql)){
+    const names=state.characters.map(x=>x.name).filter(Boolean),found=[];
+    state.chapters[state.current].html;
+    const txt=textOf(state.chapters[state.current].html).toLowerCase();
+    names.forEach(n=>{if(txt.includes(n.toLowerCase()))found.push(n)});
+    if(found.length)return "En el capítulo actual aparecen estos personajes de tu biblioteca:\n\n"+found.join("\n");
+  }
+  return null;
+}
+async function loadLocalAI(){
+  if(localGenerator)return;
+  if(localLoading)return;
+  localLoading=true;$("localAIProgress").textContent="Descargando y preparando el modelo… puede ocupar cientos de MB la primera vez.";
+  try{
+    const {pipeline,env}=await getTransformers();
+    env.useBrowserCache=true;
+    env.allowRemoteModels=true;
+    let device=navigator.gpu?"webgpu":"wasm";
+    localGenerator=await pipeline("text-generation",LOCAL_MODEL,{
+      device,
+      dtype:"q4",
+      progress_callback:(p)=>{
+        if(p?.progress!=null)$("localAIProgress").textContent="Preparando IA: "+Math.round(p.progress)+"%";
+        else if(p?.status)$("localAIProgress").textContent="IA: "+p.status;
+      }
+    });
+    $("localAIProgress").textContent="IA local lista. El modelo queda en la caché del navegador.";
+    updateAIStatus();
+  }catch(e){
+    localGenerator=null;
+    $("localAIProgress").textContent="No se pudo cargar la IA local: "+e.message;
+    alert("No se pudo cargar la IA local. Podés seguir usando la voz y las búsquedas sin IA.");
+  }finally{localLoading=false}
 }
 async function sendAI(){
-  let q=$("aiInput").value.trim();if(!q)return;
-  let key=localStorage.getItem(AIKEY)||$("aiKey").value.trim();
-  if(!key){alert("Primero agregá tu clave de API en la configuración de IA.");return}
+  const q=$("aiInput").value.trim();if(!q)return;
   $("aiInput").value="";addAIMessage("user",q);
-  // Local voice commands that do not need an API call.
+
+  // Free local voice commands.
   if(/le[ée].*cap[ií]tulo\s+\d+.*voz|leer.*cap[ií]tulo\s+\d+/i.test(q)){
-    let ci=detectChapterRequest(q);if(ci!==null&&state.chapters[ci]){let txt=textOf(state.chapters[ci].html);lastAIResponse="Leyendo "+state.chapters[ci].name+".";addAIMessage("assistant",lastAIResponse);speakText(txt);return}
+    const m=q.match(/cap[ií]tulo\s+(\d+)/i),ci=m?Number(m[1])-1:null;
+    if(ci!==null&&state.chapters[ci]){
+      lastAIResponse="Leyendo "+state.chapters[ci].name+".";
+      addAIMessage("assistant",lastAIResponse);speakText(textOf(state.chapters[ci].html));return;
+    }
   }
-  if(/le[ée].*cap[ií]tulo actual|leer.*cap[ií]tulo actual/i.test(q)){let txt=textOf(state.chapters[state.current].html);lastAIResponse="Leyendo "+state.chapters[state.current].name+".";addAIMessage("assistant",lastAIResponse);speakText(txt);return}
-  let context=getNovelContext(q);
-  let system=`Sos el asistente personal de una persona que está escribiendo una novela. Respondé en español.
-Tenés que basarte primero en el material de la novela proporcionado. No inventes datos que no estén ahí sin indicarlo.
-Cuando encuentres información concreta, citá capítulo y número de párrafo.
-Podés analizar continuidad, personajes, lugares, relaciones, contradicciones, estilo y escenas.
-Si te piden detectar incongruencias, distinguí entre contradicción confirmada y posible contradicción.
-Si te piden continuar o reescribir, hacelo solamente cuando corresponda.
-La novela puede ser larga: usá los fragmentos y el índice disponibles.
+  if(/le[ée].*cap[ií]tulo actual|leer.*cap[ií]tulo actual/i.test(q)){
+    lastAIResponse="Leyendo "+state.chapters[state.current].name+".";
+    addAIMessage("assistant",lastAIResponse);readCurrentChapter();return;
+  }
+
+  // Exact/local document search needs no model and is free.
+  const searchAnswer=localSearchAnswer(q);
+  if(searchAnswer){
+    lastAIResponse=searchAnswer;addAIMessage("assistant",searchAnswer);speakText(searchAnswer);return;
+  }
+
+  if(!localGenerator){
+    addAIMessage("assistant","La IA local todavía no está preparada. Tocá ⚙️ y después «Preparar IA local». No necesitás clave ni pagar una API.");
+    return;
+  }
+
+  $("aiStatus").textContent="IA local pensando…";
+  try{
+    const context=getContext(q);
+    const system=`Sos un asistente de escritura que trabaja con una novela. Respondé en español.
+Usá primero el material proporcionado. No inventes hechos de la novela.
+Cuando afirmes algo concreto, indicá capítulo y párrafo si están disponibles.
+Si te piden incongruencias, separá contradicciones confirmadas de posibles contradicciones.
+Podés resumir, comparar fragmentos, proponer mejoras, analizar personajes y continuar escenas.
 MATERIAL DE LA NOVELA:
 ${context}`;
-  $("aiStatus").textContent="Pensando…";
-  try{
-    let r=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
-      body:JSON.stringify({model:localStorage.getItem(AIMODEL)||$("aiModel").value||"gpt-5.4",input:[{role:"system",content:system},{role:"user",content:q}]})});
-    let data=await r.json();
-    if(!r.ok)throw Error(data.error?.message||"Error de la API");
+    const messages=[
+      {role:"system",content:system},
+      {role:"user",content:q}
+    ];
+    const output=await localGenerator(messages,{max_new_tokens:220,temperature:0.3});
     let text="";
-    if(typeof data.output_text==="string")text=data.output_text;
-    else if(Array.isArray(data.output))data.output.forEach(o=>{if(Array.isArray(o.content))o.content.forEach(c=>{if(c.text)text+=c.text})});
-    if(!text)text="La IA no devolvió texto.";
+    const item=output?.[0];
+    if(item?.generated_text){
+      const gt=item.generated_text;
+      if(Array.isArray(gt))text=gt[gt.length-1]?.content||"";
+      else text=String(gt);
+    }
+    if(!text)text="La IA local no produjo una respuesta. Probá una pregunta más concreta.";
     lastAIResponse=text;addAIMessage("assistant",text);speakText(text);
-  }catch(e){addAIMessage("assistant","No pude consultar la IA: "+e.message)}
-  finally{updateAIStatus()}
+  }catch(e){
+    addAIMessage("assistant","La IA local tuvo un problema: "+e.message);
+  }finally{$("aiStatus").textContent="IA local gratuita"}
 }
-
 function exportBackup(){
   save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");
   a.href=URL.createObjectURL(blob);a.download=(state.title||"novela")+"_backup.json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)

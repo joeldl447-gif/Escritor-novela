@@ -1,1 +1,11 @@
-V9: corrección del panel de configuración de IA en celulares. El botón ⚙️ abre la configuración sin necesidad de deslizar.
+V10 — IA LOCAL GRATUITA
+- No usa OpenAI API ni necesita clave.
+- Usa Transformers.js para ejecutar un modelo de lenguaje en el navegador.
+- Modelo: onnx-community/Qwen2.5-0.5B-Instruct, con variante cuantizada q4.
+- El primer uso descarga el modelo desde Hugging Face; después queda en la caché del navegador.
+- Usa WebGPU cuando está disponible y WASM como alternativa.
+- Voz: SpeechRecognition + SpeechSynthesis del navegador.
+- Búsqueda local de capítulos/personajes/apariciones sin IA.
+- La IA local analiza fragmentos relevantes de la novela.
+- No hay facturación por tokens de API; el modelo local sí tiene límites técnicos de memoria/contexto y el teléfono puede tardar en generar respuestas.
+- La novela permanece en el navegador; el modelo se descarga desde Internet.

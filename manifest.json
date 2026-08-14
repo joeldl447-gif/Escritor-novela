@@ -1,8 +1,8 @@
 {
   "name": "Escritor — Novela",
   "short_name": "Escritor",
-  "description": "Editor de novelas con asistente de IA y voz.",
-  "start_url": "./index.html?v=9",
+  "description": "Editor de novelas con IA local y voz, sin API de pago.",
+  "start_url": "./index.html?v=10",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
