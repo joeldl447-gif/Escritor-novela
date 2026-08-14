@@ -1,1 +1,7 @@
-V2: menú de capítulos en celular, importar .docx, exportar .docx y notas por párrafo.
+ESCRITOR V3
+- Fuerza una nueva versión de la PWA sin borrar datos de Chrome.
+- Menú de capítulos mejorado.
+- Importación Word visible dentro del menú de capítulos.
+- Exportación Word.
+- Notas por párrafo.
+- Los datos existentes de Escritor se conservan en localStorage.
