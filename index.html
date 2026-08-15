@@ -253,6 +253,7 @@ body.night #appMenu .menu-title{border-color:#333}
 .night .map-hint{color:#aaa}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3wP7z6J2hF1y6Qqk9Jp5v7n8v0f2M=" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <header>
@@ -1969,7 +1970,13 @@ function openMapPanel(){
 function closeMapPanel(){$("mapPanel").classList.remove("open");closeMapEditors()}
 function initBuenosAiresMap(){
   if(typeof L==="undefined"){
-    $("mapHint").innerHTML="No se pudo cargar el motor del mapa. Comprobá que haya conexión a Internet.";
+    $("mapHint").innerHTML="⏳ Cargando mapa…";
+    let tries=0;
+    const retry=()=>{ if(typeof L!=="undefined"){ initBuenosAiresMap(); return; }
+      if(++tries<30) setTimeout(retry,250);
+      else $("mapHint").innerHTML="No se pudo cargar el motor del mapa. Comprobá que Chrome tenga conexión a Internet y recargá la página.";
+    };
+    setTimeout(retry,250);
     return;
   }
   if(!baMap){
