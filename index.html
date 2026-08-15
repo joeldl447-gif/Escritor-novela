@@ -196,6 +196,18 @@ body.night #appMenu .menu-title{border-color:#333}
 .timeline-snippet{line-height:1.4}
 .timeline-characters,.timeline-place{font-size:12px;margin-top:6px}
 .night .timeline-item:hover{background:#292929}
+
+.review-summary{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.review-chip{font-size:12px;padding:6px 9px;border-radius:999px}
+.review-item{border:1px solid #ddd;border-radius:10px;padding:12px;margin:10px 0}
+.review-item.warning{border-left:4px solid #c88}
+.review-item.info{border-left:4px solid #888}
+.review-type{font-size:12px;font-weight:700;text-transform:uppercase;opacity:.7}
+.review-title{font-weight:700;margin:3px 0 6px}
+.review-detail{line-height:1.45}
+.review-action{margin-top:8px}
+.review-confidence{font-size:12px;opacity:.7;margin-top:5px}
+.night .review-item{border-color:#444}
 </style>
 </head>
 <body>
@@ -217,6 +229,7 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="openSearch();closeAppMenu()">🔎 Buscar en la novela</button>
   <button onclick="openCharacterProfiles();closeAppMenu()">👤 Fichas de personajes</button>
   <button onclick="openTimelinePanel();closeAppMenu()">🕰️ Línea temporal</button>
+  <button onclick="openReviewPanel();closeAppMenu()">🔍 Modo revisión</button>
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
   <button onclick="openBackupPanel();closeAppMenu()">🛡️ Historial y copias</button>
@@ -264,6 +277,19 @@ body.night #appMenu .menu-title{border-color:#333}
 
 
 
+
+<section id="reviewPanel" class="overlayPanel">
+  <div class="panelInner">
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="icon" onclick="closeReviewPanel()">←</button>
+      <h2 style="flex:1">🔍 Modo revisión</h2>
+    </div>
+    <p class="muted">Busca posibles problemas de continuidad y coherencia. Son sugerencias: la novela nunca se modifica automáticamente.</p>
+    <button onclick="runReview()">🔎 Analizar novela</button>
+    <div id="reviewSummary" class="muted" style="margin:10px 0"></div>
+    <div id="reviewResults"></div>
+  </div>
+</section>
 <section id="timelinePanel" class="overlayPanel">
   <div class="panelInner">
     <div style="display:flex;gap:8px;align-items:center">
@@ -1266,6 +1292,156 @@ function toggleAnalysisDetail(id){const e=$(id);if(e)e.classList.toggle("open")}
 
 
 let timelineFilter="all";
+
+let reviewState=[];
+function openReviewPanel(){$("reviewPanel").classList.add("open");renderReview()}
+function closeReviewPanel(){$("reviewPanel").classList.remove("open")}
+function reviewAdd(arr,type,title,detail,ci,pi,confidence="media"){
+  arr.push({type,title,detail,ci,pi,confidence});
+}
+function runReview(){
+  const findings=[];
+  const chapterData=state.chapters.map((c,ci)=>({ci,name:c.name,paragraphs:searchTextOfChapter(c)}));
+  const charNames=[...(state.characters||[]).map(x=>x.name),...(analysisState?.entities?.characters||[]).map(x=>x.name)]
+    .filter(Boolean).filter((v,i,a)=>a.findIndex(x=>normalize(x)===normalize(v))===i);
+  const placeNames=[...(state.places||[]).map(x=>x.name),...(analysisState?.entities?.places||[]).map(x=>x.name)]
+    .filter(Boolean).filter((v,i,a)=>a.findIndex(x=>normalize(x)===normalize(v))===i);
+
+  // 1. Character age inconsistencies.
+  const ages={};
+  chapterData.forEach(c=>c.paragraphs.forEach((p,pi)=>{
+    charNames.forEach(name=>{
+      if(!normalize(p).includes(normalize(name)))return;
+      const rx=new RegExp(normalize(name).replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"[^.]{0,100}\\b(\\d{1,3})\\s+años?\\b","i");
+      const m=normalize(p).match(rx);
+      if(m)(ages[name]||(ages[name]=[])).push({age:Number(m[1]),ci:c.ci,pi});
+    });
+  }));
+  Object.entries(ages).forEach(([name,vals])=>{
+    const unique=[...new Set(vals.map(x=>x.age))];
+    if(unique.length>1){
+      const a=vals.find(x=>x.age===unique[0]),b=vals.find(x=>x.age!==unique[0]);
+      reviewAdd(findings,"warning",`Edad de ${name} posiblemente inconsistente`,
+        `Aparecen ${unique.join(" y ")} años en distintos fragmentos. Puede ser intencional, pero conviene revisarlo.`,
+        b?.ci??a.ci,b?.pi??a.pi,"alta");
+    }
+  });
+
+  // 2. Character naming variants (very simple but useful).
+  const normalizedNames=new Map();
+  charNames.forEach(n=>{
+    const key=normalize(n).replace(/[^a-z0-9áéíóúñ]/g,"");
+    if(!normalizedNames.has(key))normalizedNames.set(key,[]);
+    normalizedNames.get(key).push(n);
+  });
+  normalizedNames.forEach(names=>{
+    if(names.length>1){
+      const c=chapterData.find(x=>x.paragraphs.some(p=>names.some(n=>normalize(p).includes(normalize(n)))));
+      reviewAdd(findings,"warning","Posible variante de nombre",
+        `Se registraron formas diferentes para el mismo nombre: ${names.join(", ")}.`,
+        c?.ci||0,0,"media");
+    }
+  });
+
+  // 3. Character presence contradictions: same character in distant chapters with explicit simultaneous markers.
+  const locations={};
+  chapterData.forEach(c=>c.paragraphs.forEach((p,pi)=>{
+    const lower=normalize(p);
+    charNames.forEach(name=>{
+      if(lower.includes(normalize(name))){
+        const loc= p.match(/\b(?:en|dentro de|afuera de|frente a|en la|en el)\s+([a-záéíóúñ][a-záéíóúñ ]{2,35})/i);
+        if(loc)(locations[name]||(locations[name]=[])).push({place:loc[1].trim(),ci:c.ci,pi});
+      }
+    });
+  }));
+  Object.entries(locations).forEach(([name,vals])=>{
+    const byPlace=new Map();
+    vals.forEach(v=>byPlace.set(normalize(v.place),v));
+    if(byPlace.size>1){
+      const unique=[...byPlace.values()];
+      const first=unique[0], second=unique[1];
+      if(first.ci===second.ci && Math.abs(first.pi-second.pi)<=5){
+        reviewAdd(findings,"info",`Revisar ubicación de ${name}`,
+          `En pocos párrafos aparece asociado a lugares diferentes (“${first.place}” y “${second.place}”). Puede ser normal si hubo desplazamiento.`,
+          second.ci,second.pi,"baja");
+      }
+    }
+  });
+
+  // 4. Objects introduced and later mentioned again without a basic resolution signal.
+  const objectWords=/\b(?:llave|carta|anillo|reloj|collar|medallón|medallon|arma|pistola|cuchillo|diario|cuaderno|fotografía|fotografia|teléfono|telefono|mensaje|caja|maleta|bolso|mapa|documento|foto)\b/gi;
+  const objectHits={};
+  chapterData.forEach(c=>c.paragraphs.forEach((p,pi)=>{
+    for(const m of p.matchAll(objectWords)){
+      const key=normalize(m[0]);
+      (objectHits[key]||(objectHits[key]=[])).push({ci:c.ci,pi,text:p});
+    }
+  }));
+  Object.entries(objectHits).forEach(([obj,vals])=>{
+    if(vals.length>=2){
+      const first=vals[0],last=vals[vals.length-1];
+      const resolution=/\b(perdió|perdio|entregó|entrego|dejó|dejo|guardó|guardo|rompió|rompio|vendió|vendio|regaló|regalo|robó|robo|encontró|encontro|recuperó|recupero|tiró|tiro|quemó|quemo)\b/i;
+      const between=vals.slice(0,Math.min(vals.length,6)).some(v=>resolution.test(v.text));
+      if(!between && last.ci-first.ci>=1){
+        reviewAdd(findings,"info",`Objeto recurrente: ${obj}`,
+          `Aparece en varios capítulos sin que el análisis encuentre una acción clara que explique su estado. Puede ser completamente normal.`,
+          last.ci,last.pi,"baja");
+      }
+    }
+  });
+
+  // 5. Introduced characters who disappear for a long time.
+  const firstSeen={},lastSeen={};
+  chapterData.forEach(c=>c.paragraphs.forEach((p,pi)=>{
+    charNames.forEach(name=>{
+      if(normalize(p).includes(normalize(name))){
+        if(firstSeen[name]===undefined)firstSeen[name]={ci:c.ci,pi};
+        lastSeen[name]={ci:c.ci,pi};
+      }
+    });
+  }));
+  Object.keys(firstSeen).forEach(name=>{
+    const gap=lastSeen[name].ci-firstSeen[name].ci;
+    if(gap>=3){
+      reviewAdd(findings,"info",`${name} desaparece durante varios capítulos`,
+        `Primera aparición: ${chapterData[firstSeen[name].ci].name}. Última aparición detectada: ${chapterData[lastSeen[name].ci].name}. Esto puede ser intencional; sirve como recordatorio para revisar el arco.`,
+        lastSeen[name].ci,lastSeen[name].pi,"baja");
+    }
+  });
+
+  // 6. Repeated paragraphs / near duplicates using first 120 normalized chars.
+  const seen=new Map();
+  chapterData.forEach(c=>c.paragraphs.forEach((p,pi)=>{
+    const key=normalize(p).replace(/\s+/g," ").slice(0,120);
+    if(key.length<70)return;
+    if(seen.has(key)){
+      const old=seen.get(key);
+      reviewAdd(findings,"warning","Fragmentos posiblemente repetidos",
+        `Dos párrafos comienzan de forma prácticamente idéntica: “${p.slice(0,110)}…”.`,
+        c.ci,pi,"media");
+    }else seen.set(key,{ci:c.ci,pi});
+  }));
+
+  reviewState=findings.slice(0,100);
+  renderReview();
+}
+function renderReview(){
+  const box=$("reviewResults"),summary=$("reviewSummary");
+  if(!box)return;
+  box.innerHTML="";
+  if(!reviewState.length){
+    if(summary)summary.textContent="No encontré posibles problemas con estas reglas.";
+    box.innerHTML='<div class="muted">Eso no significa que la novela esté libre de errores; significa que estas comprobaciones automáticas no encontraron algo evidente.</div>';
+    return;
+  }
+  const counts=reviewState.reduce((a,x)=>(a[x.type]=(a[x.type]||0)+1,a),{});
+  if(summary)summary.textContent=`${reviewState.length} sugerencia${reviewState.length===1?"":"s"} · ${counts.warning||0} para revisar · ${counts.info||0} recordatorio${counts.info===1?"":"s"}`;
+  reviewState.forEach((x,i)=>{
+    const d=document.createElement("div");d.className="review-item "+x.type;
+    d.innerHTML=`<div class="review-type">${esc(x.type)}</div><div class="review-title">${esc(x.title)}</div><div class="review-detail">${esc(x.detail)}</div><div class="review-confidence">Confianza de la detección: ${esc(x.confidence)}</div><div class="review-action"><button onclick="jumpSearchResult(${x.ci},${x.pi})">📍 Ir al fragmento</button></div>`;
+    box.appendChild(d);
+  });
+}
 function openTimelinePanel(){renderTimeline();$("timelinePanel").classList.add("open")}
 function closeTimelinePanel(){$("timelinePanel").classList.remove("open")}
 function setTimelineFilter(f){

@@ -1,8 +1,8 @@
 {
   "name": "Escritor — Novela",
   "short_name": "Escritor",
-  "description": "Editor de novelas con línea temporal automática, fichas y análisis.",
-  "start_url": "./index.html?v=24",
+  "description": "Editor de novelas con modo de revisión automática.",
+  "start_url": "./index.html?v=25",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
