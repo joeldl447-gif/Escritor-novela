@@ -1,8 +1,8 @@
 {
   "name": "Escritor — Novela",
   "short_name": "Escritor",
-  "description": "Editor de novelas con IA local ligera, historial y copias de seguridad.",
-  "start_url": "./index.html?v=20",
+  "description": "Editor de novelas con búsqueda avanzada, fichas y análisis.",
+  "start_url": "./index.html?v=21",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

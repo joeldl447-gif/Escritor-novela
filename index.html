@@ -156,6 +156,26 @@ body.night #appMenu .menu-title{border-color:#333}
 .backup-history-meta{font-size:12px;color:#777;margin:3px 0 7px}
 .backup-history-actions{display:flex;gap:6px;flex-wrap:wrap}
 .night #backupPanel .backup-history-item{border-color:#444}
+
+.search-mode-bar{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.search-mode{font-size:13px;padding:7px 10px;border-radius:999px}
+.search-mode.active{font-weight:700;outline:2px solid currentColor}
+.search-result{padding:12px;border-bottom:1px solid #ddd;cursor:pointer}
+.search-result:hover{background:#f1f1f1}
+.search-result-title{font-weight:700;font-size:16px}
+.search-result-meta{font-size:12px;color:#777;margin:4px 0}
+.search-result-snippet{line-height:1.45}
+.search-hit{font-weight:700;text-decoration:underline}
+.search-empty{padding:18px 4px}
+.night .search-result:hover{background:#242424}
+.night .search-result{border-color:#444}
+
+.character-profile{border:1px solid #ddd;border-radius:10px;padding:12px;margin:10px 0}
+.character-profile h3{margin:0 0 5px}
+.character-profile-meta{font-size:13px;color:#777;margin-bottom:8px}
+.character-profile-chapters{display:flex;gap:5px;flex-wrap:wrap}
+.character-profile-chapters button{font-size:12px;padding:5px 8px}
+.night .character-profile{border-color:#444}
 </style>
 </head>
 <body>
@@ -175,6 +195,7 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="toggleNight();closeAppMenu()">☾ Modo nocturno</button>
   <button onclick="openLibrary();closeAppMenu()">▦ Biblioteca</button>
   <button onclick="openSearch();closeAppMenu()">🔎 Buscar en la novela</button>
+  <button onclick="openCharacterProfiles();closeAppMenu()">👤 Fichas de personajes</button>
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
   <button onclick="openBackupPanel();closeAppMenu()">🛡️ Historial y copias</button>
@@ -220,13 +241,31 @@ body.night #appMenu .menu-title{border-color:#333}
   </div>
 </section>
 
+
+<section id="characterPanel" class="overlayPanel">
+  <div class="panelInner">
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="icon" onclick="closeCharacterProfiles()">←</button>
+      <h2 style="flex:1">Fichas de personajes</h2>
+    </div>
+    <div id="characterProfiles"></div>
+  </div>
+</section>
 <section id="searchPanel" class="overlayPanel">
   <div class="panelInner">
-    <div style="display:flex;gap:8px">
-      <input id="globalSearch" style="flex:1;padding:11px;border:1px solid #ccc;border-radius:8px;font-size:16px" placeholder="Buscar en toda la novela..." oninput="runSearch()">
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="globalSearch" style="flex:1;padding:11px;border:1px solid #ccc;border-radius:8px;font-size:16px" placeholder="Buscar personaje, frase, capítulo o lugar…" oninput="runSearch()">
       <button onclick="closeSearch()">Cerrar</button>
     </div>
-    <div id="searchResults" style="margin-top:15px"></div>
+    <div id="searchModeBar" class="search-mode-bar">
+      <button class="search-mode active" data-mode="all" onclick="setSearchMode('all')">Todo</button>
+      <button class="search-mode" data-mode="text" onclick="setSearchMode('text')">Texto</button>
+      <button class="search-mode" data-mode="chapter" onclick="setSearchMode('chapter')">Capítulos</button>
+      <button class="search-mode" data-mode="character" onclick="setSearchMode('character')">Personajes</button>
+      <button class="search-mode" data-mode="place" onclick="setSearchMode('place')">Lugares</button>
+    </div>
+    <div id="searchSummary" class="muted"></div>
+    <div id="searchResults" style="margin-top:10px"></div>
   </div>
 </section>
 
@@ -420,22 +459,124 @@ function openLibrary(){renderLibrary();$("library").classList.add("open")}
 function closeLibrary(){$("library").classList.remove("open")}
 function openSearch(){$("searchPanel").classList.add("open");setTimeout(()=>$("globalSearch").focus(),50)}
 function closeSearch(){$("searchPanel").classList.remove("open")}
-function runSearch(){
-  let q=$("globalSearch").value.trim().toLowerCase(),b=$("searchResults");b.innerHTML="";
-  if(!q)return;
-  state.chapters.forEach((c,ci)=>{
-    let d=document.createElement("div");d.innerHTML=c.html;
-    [...d.querySelectorAll("p")].forEach((p,pi)=>{
-      let t=p.innerText||"";
-      if(t.toLowerCase().includes(q)){
-        let r=document.createElement("div");r.className="search-result";
-        r.innerHTML="<b>"+esc(c.name)+" · Párrafo "+(pi+1)+"</b><br>"+esc(t.slice(0,240));
-        r.onclick=()=>{closeSearch();state.current=ci;load()};
-        b.appendChild(r);
-      }
-    });
+let searchMode="all";
+function setSearchMode(mode){
+  searchMode=mode;
+  document.querySelectorAll(".search-mode").forEach(b=>b.classList.toggle("active",b.dataset.mode===mode));
+  runSearch();
+}
+function searchTextOfChapter(c){
+  const d=document.createElement("div");d.innerHTML=c.html;
+  return [...d.querySelectorAll("p")].map(p=>p.innerText.trim()).filter(Boolean);
+}
+function searchEscReg(s){return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}
+function highlightSearch(text,q){
+  if(!q)return esc(text);
+  const parts=String(text).split(new RegExp("("+searchEscReg(q)+")","ig"));
+  return parts.map((p,i)=>i%2?'<span class="search-hit">'+esc(p)+'</span>':esc(p)).join("");
+}
+function jumpSearchResult(ci,pi){
+  state.current=ci;load();closeSearch();
+  setTimeout(()=>{
+    const ps=document.querySelectorAll("#editor p");
+    const p=ps[pi];
+    if(p){
+      p.scrollIntoView({behavior:"smooth",block:"center"});
+      p.style.outline="3px solid #e2a83b";
+      setTimeout(()=>p.style.outline="",1800);
+    }
+  },120);
+}
+function searchEntityMatches(q,collection,type){
+  const out=[];
+  (collection||[]).forEach(x=>{
+    const name=String(x.name||x.label||x.value||"");
+    if(name.toLowerCase().includes(q))out.push({name,type,source:x.source||""});
   });
-  if(!b.children.length)b.innerHTML="<p class='muted'>No se encontraron resultados.</p>";
+  return out;
+}
+function runSearch(){
+  const input=$("globalSearch"),b=$("searchResults"),summary=$("searchSummary");
+  if(!input||!b)return;
+  const q=input.value.trim().toLowerCase();
+  b.innerHTML="";
+  if(summary)summary.textContent="";
+  if(!q)return;
+
+  const results=[];
+  const addResult=(r)=>{if(results.length<150)results.push(r)};
+
+  state.chapters.forEach((c,ci)=>{
+    const paragraphs=searchTextOfChapter(c);
+
+    if(searchMode==="all"||searchMode==="chapter"){
+      if(c.name.toLowerCase().includes(q))
+        addResult({kind:"chapter",ci,pi:0,title:c.name,meta:"Capítulo",snippet:"Abrir este capítulo"});
+    }
+
+    if(searchMode==="all"||searchMode==="text"){
+      paragraphs.forEach((text,pi)=>{
+        if(text.toLowerCase().includes(q)){
+          const at=text.toLowerCase().indexOf(q);
+          const start=Math.max(0,at-90),end=Math.min(text.length,at+q.length+140);
+          addResult({
+            kind:"text",ci,pi,title:c.name,
+            meta:`Capítulo ${ci+1} · párrafo ${pi+1}`,
+            snippet:(start>0?"…":"")+text.slice(start,end)+(end<text.length?"…":"")
+          });
+        }
+      });
+    }
+  });
+
+  if(searchMode==="all"||searchMode==="character"){
+    searchEntityMatches(q,analysisState?.entities?.characters||[],"character").forEach(x=>{
+      addResult({kind:"entity",title:x.name,meta:"Personaje detectado",snippet:x.source||"Encontrado en el análisis"});
+    });
+    searchEntityMatches(q,state.characters||[],"character").forEach(x=>{
+      addResult({kind:"entity",title:x.name,meta:"Personaje de la novela",snippet:x.desc||"Ficha de personaje"});
+    });
+  }
+
+  if(searchMode==="all"||searchMode==="place"){
+    searchEntityMatches(q,analysisState?.entities?.places||[],"place").forEach(x=>{
+      addResult({kind:"entity",title:x.name,meta:"Lugar detectado",snippet:x.source||"Encontrado en el análisis"});
+    });
+    searchEntityMatches(q,state.places||[],"place").forEach(x=>{
+      addResult({kind:"entity",title:x.name,meta:"Lugar de la novela",snippet:x.desc||"Ficha de lugar"});
+    });
+  }
+
+  if(!results.length){
+    b.innerHTML='<div class="search-empty muted">No encontré coincidencias. Probá con otra palabra o cambiá el filtro.</div>';
+    return;
+  }
+
+  if(summary)summary.textContent=results.length+(results.length===150?"+":"")+" resultado"+(results.length===1?"":"s");
+
+  results.forEach(r=>{
+    const d=document.createElement("div");
+    d.className="search-result";
+    if(r.kind==="chapter"){
+      d.innerHTML=`<div class="search-result-title">📖 ${esc(r.title)}</div><div class="search-result-meta">${esc(r.meta)}</div><div class="search-result-snippet">${esc(r.snippet)}</div>`;
+      d.onclick=()=>jumpSearchResult(r.ci,0);
+    }else if(r.kind==="text"){
+      d.innerHTML=`<div class="search-result-title">📍 ${esc(r.title)}</div><div class="search-result-meta">${esc(r.meta)}</div><div class="search-result-snippet">${highlightSearch(r.snippet,q)}</div>`;
+      d.onclick=()=>jumpSearchResult(r.ci,r.pi);
+    }else{
+      d.innerHTML=`<div class="search-result-title">${r.kind==="character"?"👤":"📍"} ${esc(r.title)}</div><div class="search-result-meta">${esc(r.meta)}</div><div class="search-result-snippet">${esc(r.snippet)}</div>`;
+      d.onclick=()=>{
+        const term=r.title.toLowerCase();
+        const ci=state.chapters.findIndex(c=>c.html.toLowerCase().includes(term));
+        if(ci>=0){
+          const ps=searchTextOfChapter(state.chapters[ci]);
+          const pi=ps.findIndex(p=>p.toLowerCase().includes(term));
+          jumpSearchResult(ci,Math.max(0,pi));
+        }
+      };
+    }
+    b.appendChild(d);
+  });
 }
 function totalNotes(){return state.chapters.reduce((n,c)=>n+Object.values(c.notes||{}).filter(Boolean).length,0)}
 function renderLibrary(){
@@ -1055,6 +1196,39 @@ function ignoreAnalysisName(name){
   analyzeTextLocally();renderAnalysis();
 }
 function toggleAnalysisDetail(id){const e=$(id);if(e)e.classList.toggle("open")}
+
+function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}
+function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
+function renderCharacterProfiles(){
+  const box=$("characterProfiles");if(!box)return;box.innerHTML="";
+  const names=new Map();
+  (state.characters||[]).forEach(x=>names.set(normalize(x.name||""),x.name));
+  (analysisState?.entities?.characters||[]).forEach(x=>{
+    const k=normalize(x.name||"");if(k&&!names.has(k))names.set(k,x.name);
+  });
+  if(!names.size){box.innerHTML='<div class="muted">Todavía no hay personajes registrados o detectados.</div>';return}
+  [...names.entries()].sort((a,b)=>a[1].localeCompare(b[1],"es")).forEach(([key,name])=>{
+    const appearances=[];
+    state.chapters.forEach((c,ci)=>{
+      searchTextOfChapter(c).forEach((p,pi)=>{
+        if(normalize(p).includes(key))appearances.push({ci,pi});
+      });
+    });
+    const known=(state.characters||[]).find(x=>normalize(x.name||"")===key);
+    const d=document.createElement("div");d.className="character-profile";
+    d.innerHTML=`<h3>👤 ${esc(name)}</h3><div class="character-profile-meta">${appearances.length} aparición${appearances.length===1?"":"es"} · ${known?.desc?esc(known.desc):"Detectado automáticamente"}</div><div class="character-profile-chapters"></div>`;
+    const wrap=d.querySelector(".character-profile-chapters");
+    const byChapter=new Map();
+    appearances.forEach(a=>{if(!byChapter.has(a.ci))byChapter.set(a.ci,[]);byChapter.get(a.ci).push(a.pi)});
+    byChapter.forEach((pis,ci)=>{
+      const btn=document.createElement("button");
+      btn.textContent=state.chapters[ci].name+" ("+pis.length+")";
+      btn.onclick=()=>jumpSearchResult(ci,pis[0]);
+      wrap.appendChild(btn);
+    });
+    box.appendChild(d);
+  });
+}
 function renderAnalysis(){
   const r=$("analysisResults");if(!r)return;r.innerHTML="";
   const make=(title,items,fmt)=>{

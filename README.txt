@@ -1,9 +1,7 @@
-V20 — PROTECCIÓN DE LA NOVELA
-- Copia completa manual en JSON con capítulos, notas, personajes, lugares e historial.
-- Restauración de copias completas mediante archivo JSON.
-- Hasta 12 copias automáticas locales, con límite de una nueva copia por minuto salvo creación manual.
-- Historial por capítulo ampliado a 30 versiones.
-- Vista previa y restauración de versiones de capítulos.
-- Restaurar una versión conserva la versión actual en el historial.
-- Las copias automáticas no salen del dispositivo.
-- Mantiene la IA local segura de V19, voz, Word acumulativo, grafo y análisis.
+V21 — BÚSQUEDA AVANZADA + FICHAS
+- Búsqueda por texto, capítulo, personaje y lugar.
+- Resultados con fragmento y salto directo al párrafo.
+- Filtros Todo / Texto / Capítulos / Personajes / Lugares.
+- Fichas automáticas de personajes con cantidad de apariciones y capítulos.
+- Tocar un capítulo de una ficha lleva a la primera aparición.
+- Mantiene copias/historial V20 e IA local segura V19.

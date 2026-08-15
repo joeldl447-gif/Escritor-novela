@@ -1,4 +1,4 @@
-const CACHE='escritor-v20';
+const CACHE='escritor-v21';
 self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch',e=>e.respondWith(
