@@ -1,6 +1,10 @@
-V32
-- Tocar un párrafo ya no abre el editor de notas.
-- El panel de notas se activa únicamente al tocar el icono ✏️.
-- Escribir y mover el cursor no abre ningún panel.
-- El párrafo bajo el cursor queda identificado para que el icono sepa dónde guardar la nota.
-- Mantiene el zoom de escritura V31.
+V33 — MAPA DE BUENOS AIRES
+- Mapa centrado en CABA/Buenos Aires.
+- Base satelital Esri World Imagery, con atribución visible.
+- Alternancia satélite/calles.
+- Puntos de interés manuales: agregar, editar, eliminar.
+- Cada punto puede asociarse a un capítulo.
+- Rutas manuales: tocar puntos para dibujar recorridos, guardar, editar nombre/descripción y eliminar.
+- Datos del mapa se guardan localmente en la app.
+- “Ir al texto” en puntos abre el capítulo asociado.
+- El mapa usa Leaflet 1.9.4 y servicios de mapas externos, por lo que requiere conexión para cargar las imágenes.

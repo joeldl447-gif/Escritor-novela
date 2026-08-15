@@ -1,8 +1,8 @@
 {
   "name": "Escritor — Novela",
   "short_name": "Escritor",
-  "description": "Editor de novelas con notas activables mediante icono.",
-  "start_url": "./index.html?v=32",
+  "description": "Editor de novelas con mapa satelital de Buenos Aires, puntos y rutas.",
+  "start_url": "./index.html?v=33",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

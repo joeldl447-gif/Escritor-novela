@@ -235,7 +235,24 @@ body.night #appMenu .menu-title{border-color:#333}
 .review-action{margin-top:8px;position:relative;z-index:5}.review-action button{position:relative;z-index:6;pointer-events:auto;touch-action:manipulation;cursor:pointer;-webkit-tap-highlight-color:rgba(100,150,255,.25)}#runReviewBtn{position:relative;z-index:10;pointer-events:auto;touch-action:manipulation;cursor:pointer}
 .review-confidence{font-size:12px;opacity:.7;margin-top:5px}
 .night .review-item{border-color:#444}
+
+.map-shell{position:absolute;inset:0;display:flex;flex-direction:column;min-width:0}
+.map-head{display:flex;gap:7px;align-items:center;padding:9px 10px;border-bottom:1px solid #ddd;flex-wrap:wrap;background:var(--panel,#fff);z-index:10}
+.map-head h2{margin:0;font-size:21px}
+.map-hint{font-size:12px;color:#666;padding:7px 12px;border-bottom:1px solid #ddd;background:var(--panel,#fff);z-index:5}
+#baMap{position:relative;flex:1;min-height:420px;touch-action:none}
+.map-editor{position:absolute;right:14px;top:14px;width:min(400px,calc(100% - 28px));max-height:calc(100% - 28px);overflow:auto;padding:14px;border:1px solid #999;border-radius:12px;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,.25);z-index:1000}
+.map-editor-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.map-editor label{display:block;font-size:13px;margin:8px 0}
+.map-editor input,.map-editor textarea,.map-editor select{width:100%;box-sizing:border-box;margin-top:4px;padding:9px;border:1px solid #bbb;border-radius:8px;font:inherit;background:inherit;color:inherit}
+.map-editor-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+.map-editor .danger{border:1px solid #a33;color:#a33}
+.map-route-drawing{cursor:crosshair!important}
+.map-route-label{font-size:12px;font-weight:700}
+.night .map-head,.night .map-hint,.night .map-editor{background:#242424;border-color:#444;color:#eee}
+.night .map-hint{color:#aaa}
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3wP7z6J2hF1y6Qqk9Jp5v7n8v0f2M=" crossorigin=""/>
 </head>
 <body>
 <header>
@@ -256,6 +273,7 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="openSearch();closeAppMenu()">🔎 Buscar en la novela</button>
   <button onclick="openCharacterProfiles();closeAppMenu()">👤 Fichas de personajes</button>
   <button onclick="openTimelinePanel();closeAppMenu()">🕰️ Línea temporal</button>
+  <button onclick="openMapPanel();closeAppMenu()">🗺️ Mapa de Buenos Aires</button>
   <button onclick="openReviewPanel();closeAppMenu()">🔍 Modo revisión</button>
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
@@ -317,7 +335,58 @@ body.night #appMenu .menu-title{border-color:#333}
     <div id="reviewResults"></div>
   </div>
 </section>
-<section id="timelinePanel" class="overlayPanel">
+
+<section id="mapPanel" class="overlayPanel">
+  <div class="map-shell">
+    <div class="map-head">
+      <button type="button" class="icon" id="mapBack">←</button>
+      <h2 style="flex:1">🗺️ Mapa de Buenos Aires</h2>
+      <button type="button" id="mapAddPoint">📍 Punto</button>
+      <button type="button" id="mapStartRoute">〰️ Ruta</button>
+      <button type="button" id="mapFinishRoute" hidden>✓ Terminar</button>
+      <button type="button" id="mapCancelRoute" hidden>× Cancelar</button>
+      <button type="button" id="mapBaseToggle">🛰️ Satélite</button>
+    </div>
+    <div id="mapHint" class="map-hint">Tocá <b>📍 Punto</b> para agregar un lugar. Con <b>〰️ Ruta</b> podés dibujar recorridos sobre el mapa.</div>
+    <div id="baMap"></div>
+    <div id="mapEditor" class="map-editor" hidden>
+      <div class="map-editor-head">
+        <strong id="mapEditorTitle">Nuevo punto</strong>
+        <button type="button" id="mapEditorClose">×</button>
+      </div>
+      <label>Nombre
+        <input id="mapPointName" type="text" placeholder="Ej.: Casa de Mabel">
+      </label>
+      <label>Descripción
+        <textarea id="mapPointText" rows="3" placeholder="Qué ocurre aquí, qué personaje vive aquí, etc."></textarea>
+      </label>
+      <label>Capítulo asociado
+        <select id="mapPointChapter"></select>
+      </label>
+      <div class="map-editor-actions">
+        <button type="button" id="mapPointSave">Guardar</button>
+        <button type="button" id="mapPointDelete" class="danger">Eliminar</button>
+        <button type="button" id="mapPointJump">📍 Ir al texto</button>
+      </div>
+    </div>
+    <div id="routeEditor" class="map-editor" hidden>
+      <div class="map-editor-head">
+        <strong id="routeEditorTitle">Nueva ruta</strong>
+        <button type="button" id="routeEditorClose">×</button>
+      </div>
+      <label>Nombre
+        <input id="mapRouteName" type="text" placeholder="Ej.: Mabel va de la casa a la estación">
+      </label>
+      <label>Descripción
+        <textarea id="mapRouteText" rows="3" placeholder="Qué representa este recorrido…"></textarea>
+      </label>
+      <div class="map-editor-actions">
+        <button type="button" id="mapRouteSave">Guardar</button>
+        <button type="button" id="mapRouteDelete" class="danger">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</section><section id="timelinePanel" class="overlayPanel">
   <div class="timeline-shell">
     <div class="timeline-head">
       <button type="button" class="icon" id="timelineBack">←</button>
@@ -525,6 +594,7 @@ state.characters=state.characters||[];
 state.places=state.places||[];
 state.history=state.history||{};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+ensureMapState();
 state.editorZoom=Number(state.editorZoom)||1;
 state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
 let selected=null;
@@ -1885,6 +1955,192 @@ function bindTimelineUI(){
 bindTimelineUI();
 window.addEventListener("resize",()=>{if($("timelinePanel")?.classList.contains("open"))centerTimeline()});
 
+let baMap=null,mapSatellite=true,mapDrawingRoute=false,mapCurrentRoute=[],mapDraftLine=null,mapEditingPointId=null,mapEditingRouteId=null;
+function ensureMapState(){
+  if(!Array.isArray(state.mapPoints))state.mapPoints=[];
+  if(!Array.isArray(state.mapRoutes))state.mapRoutes=[];
+}
+function saveMapState(){localStorage.setItem(KEY,JSON.stringify(state))}
+function openMapPanel(){
+  ensureMapState();
+  $("mapPanel").classList.add("open");
+  initBuenosAiresMap();
+}
+function closeMapPanel(){$("mapPanel").classList.remove("open");closeMapEditors()}
+function initBuenosAiresMap(){
+  if(typeof L==="undefined"){
+    $("mapHint").innerHTML="No se pudo cargar el motor del mapa. Comprobá que haya conexión a Internet.";
+    return;
+  }
+  if(!baMap){
+    baMap=L.map("baMap",{zoomControl:true,attributionControl:true,preferCanvas:true}).setView([-34.6037,-58.3816],12);
+    window.baSatellite=L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      {maxZoom:19,attribution:"Sources: Esri, DigitalGlobe, GeoEye, i-cubed, USDA FSA, USGS, AEX, Getmapping, Aerogrid, IGN, IGP, swisstopo, GIS User Community"}
+    );
+    window.baStreet=L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      {maxZoom:19,attribution:"© OpenStreetMap contributors"}
+    );
+    window.baSatellite.addTo(baMap);
+    baMap.on("click",e=>{
+      if(mapDrawingRoute)addRoutePoint(e.latlng);
+    });
+    setTimeout(()=>baMap.invalidateSize(),80);
+  }
+  renderMapLayers();
+  setTimeout(()=>baMap.invalidateSize(),80);
+}
+function renderMapLayers(){
+  ensureMapState();
+  if(!baMap)return;
+  document.querySelectorAll(".novel-map-marker").forEach(x=>x.remove());
+  // Use a dedicated Leaflet layer group so markers can be rebuilt cleanly.
+  if(window.baPointLayer)window.baPointLayer.clearLayers();
+  else window.baPointLayer=L.layerGroup().addTo(baMap);
+  state.mapPoints.forEach(p=>{
+    const m=L.marker([p.lat,p.lng],{title:p.name||"Punto"});
+    m._novelId=p.id;
+    m.bindTooltip(p.name||"Punto",{direction:"top",offset:[0,-10]});
+    m.on("click",()=>openMapPointEditor(p.id));
+    m.addTo(window.baPointLayer);
+  });
+  if(window.baRouteLayer)window.baRouteLayer.clearLayers();
+  else window.baRouteLayer=L.layerGroup().addTo(baMap);
+  state.mapRoutes.forEach(r=>{
+    if(!Array.isArray(r.points)||r.points.length<2)return;
+    const line=L.polyline(r.points,{weight:5,opacity:.8});
+    line.bindTooltip(r.name||"Ruta",{sticky:true});
+    line.on("click",()=>openMapRouteEditor(r.id));
+    line.addTo(window.baRouteLayer);
+  });
+  if(mapDraftLine){
+    mapDraftLine.remove();mapDraftLine=null;
+  }
+  if(mapCurrentRoute.length>1){
+    mapDraftLine=L.polyline(mapCurrentRoute,{weight:5,dashArray:"8 8",opacity:.8}).addTo(baMap);
+  }
+}
+function toggleMapBase(){
+  if(!baMap)return;
+  if(mapSatellite){
+    baMap.removeLayer(window.baSatellite);window.baStreet.addTo(baMap);
+    $("mapBaseToggle").textContent="🛰️ Satélite";
+    $("mapHint").innerHTML="Modo calle. Tocá <b>🛰️ Satélite</b> para volver a la imagen satelital.";
+  }else{
+    baMap.removeLayer(window.baStreet);window.baSatellite.addTo(baMap);
+    $("mapBaseToggle").textContent="🗺️ Calles";
+    $("mapHint").innerHTML="Modo satélite. Tocá <b>📍 Punto</b> para agregar un lugar o <b>〰️ Ruta</b> para dibujar un recorrido.";
+  }
+  mapSatellite=!mapSatellite;
+}
+function addMapPointAt(latlng){
+  const p={id:"mp_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),name:"Nuevo punto",text:"",lat:latlng.lat,lng:latlng.lng,ci:state.current||0};
+  state.mapPoints.push(p);saveMapState();openMapPointEditor(p.id);
+}
+function addPointMode(){
+  if(!baMap)return;
+  $("mapHint").innerHTML="Tocá el lugar exacto del mapa donde querés colocar el punto.";
+  $("baMap").classList.add("map-route-drawing");
+  const once=e=>{
+    if(mapDrawingRoute)return;
+    addMapPointAt(e.latlng);
+    baMap.off("click",once);
+    $("baMap").classList.remove("map-route-drawing");
+  };
+  baMap.once("click",once);
+}
+function startMapRoute(){
+  if(!baMap)return;
+  mapDrawingRoute=true;mapCurrentRoute=[];
+  $("mapStartRoute").hidden=true;$("mapFinishRoute").hidden=false;$("mapCancelRoute").hidden=false;
+  $("mapHint").innerHTML="Tocá varios puntos para trazar la ruta. Podés hacer curvas y recorridos arbitrarios.";
+  $("baMap").classList.add("map-route-drawing");
+  renderMapLayers();
+}
+function addRoutePoint(latlng){
+  if(!mapDrawingRoute)return;
+  mapCurrentRoute.push([latlng.lat,latlng.lng]);
+  renderMapLayers();
+}
+function finishMapRoute(){
+  if(!mapDrawingRoute)return;
+  if(mapCurrentRoute.length<2){alert("Marcá al menos dos puntos para crear una ruta.");return;}
+  mapDrawingRoute=false;
+  $("mapStartRoute").hidden=false;$("mapFinishRoute").hidden=true;$("mapCancelRoute").hidden=true;
+  $("baMap").classList.remove("map-route-drawing");
+  const r={id:"mr_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),name:"Nueva ruta",text:"",points:mapCurrentRoute.slice(),manual:true};
+  state.mapRoutes.push(r);saveMapState();mapCurrentRoute=[];renderMapLayers();openMapRouteEditor(r.id);
+}
+function cancelMapRoute(){
+  mapDrawingRoute=false;mapCurrentRoute=[];$("mapStartRoute").hidden=true;
+  $("mapStartRoute").hidden=false;$("mapFinishRoute").hidden=true;$("mapCancelRoute").hidden=true;
+  $("baMap").classList.remove("map-route-drawing");renderMapLayers();
+}
+function populateMapChapterSelect(){
+  const s=$("mapPointChapter");if(!s)return;s.innerHTML="";
+  state.chapters.forEach((c,i)=>{const o=document.createElement("option");o.value=i;o.textContent=c.name;s.appendChild(o)});
+}
+function openMapPointEditor(id){
+  const p=state.mapPoints.find(x=>x.id===id);if(!p)return;
+  mapEditingPointId=id;populateMapChapterSelect();
+  $("mapEditorTitle").textContent="Editar punto";
+  $("mapPointName").value=p.name||"";$("mapPointText").value=p.text||"";
+  $("mapPointChapter").value=String(p.ci??0);
+  $("mapPointDelete").style.display="inline-block";$("mapPointJump").style.display="inline-block";
+  $("mapEditor").hidden=false;$("routeEditor").hidden=true;
+}
+function saveMapPoint(){
+  const p=state.mapPoints.find(x=>x.id===mapEditingPointId);if(!p)return;
+  const name=$("mapPointName").value.trim();if(!name){$("mapPointName").focus();return}
+  Object.assign(p,{name,text:$("mapPointText").value.trim(),ci:Number($("mapPointChapter").value)||0});
+  saveMapState();closeMapEditors();renderMapLayers();
+}
+function deleteMapPoint(){
+  const p=state.mapPoints.find(x=>x.id===mapEditingPointId);if(!p)return;
+  if(!confirm(`¿Eliminar "${p.name}" del mapa?`))return;
+  state.mapPoints=state.mapPoints.filter(x=>x.id!==mapEditingPointId);saveMapState();closeMapEditors();renderMapLayers();
+}
+function jumpMapPoint(){
+  const p=state.mapPoints.find(x=>x.id===mapEditingPointId);if(!p)return;
+  closeMapPanel();state.current=p.ci||0;load();
+}
+function openMapRouteEditor(id){
+  const r=state.mapRoutes.find(x=>x.id===id);if(!r)return;
+  mapEditingRouteId=id;
+  $("mapRouteName").value=r.name||"";$("mapRouteText").value=r.text||"";
+  $("routeEditor").hidden=false;$("mapEditor").hidden=true;
+}
+function saveMapRoute(){
+  const r=state.mapRoutes.find(x=>x.id===mapEditingRouteId);if(!r)return;
+  const name=$("mapRouteName").value.trim();if(!name){$("mapRouteName").focus();return}
+  Object.assign(r,{name,text:$("mapRouteText").value.trim()});
+  saveMapState();closeMapEditors();renderMapLayers();
+}
+function deleteMapRoute(){
+  const r=state.mapRoutes.find(x=>x.id===mapEditingRouteId);if(!r)return;
+  if(!confirm(`¿Eliminar "${r.name}" del mapa?`))return;
+  state.mapRoutes=state.mapRoutes.filter(x=>x.id!==mapEditingRouteId);saveMapState();closeMapEditors();renderMapLayers();
+}
+function closeMapEditors(){$("mapEditor").hidden=true;$("routeEditor").hidden=true;mapEditingPointId=null;mapEditingRouteId=null}
+function bindMapUI(){
+  if($("mapPanel").dataset.bound==="1")return;
+  $("mapPanel").dataset.bound="1";
+  $("mapBack").addEventListener("click",closeMapPanel);
+  $("mapAddPoint").addEventListener("click",addPointMode);
+  $("mapStartRoute").addEventListener("click",startMapRoute);
+  $("mapFinishRoute").addEventListener("click",finishMapRoute);
+  $("mapCancelRoute").addEventListener("click",cancelMapRoute);
+  $("mapBaseToggle").addEventListener("click",toggleMapBase);
+  $("mapEditorClose").addEventListener("click",closeMapEditors);
+  $("mapPointSave").addEventListener("click",saveMapPoint);
+  $("mapPointDelete").addEventListener("click",deleteMapPoint);
+  $("mapPointJump").addEventListener("click",jumpMapPoint);
+  $("mapRouteEditorClose").addEventListener?.("click",closeMapEditors);
+  $("mapRouteSave").addEventListener("click",saveMapRoute);
+  $("mapRouteDelete").addEventListener("click",deleteMapRoute);
+}
+
 function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}
 function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
 
@@ -2100,6 +2356,7 @@ async function importFullBackup(file){
     state=data.state;
     state.history=state.history||{};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+ensureMapState();
     state.characters=state.characters||[];
     state.places=state.places||[];
     load();
@@ -2213,6 +2470,7 @@ function restoreAutoBackup(index){
   state=JSON.parse(JSON.stringify(item.data));
   state.history=state.history||{};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+ensureMapState();
   localStorage.setItem(KEY,JSON.stringify(state));
   load();
   renderBackupPanel();
@@ -2321,3 +2579,5 @@ document.addEventListener("DOMContentLoaded",function(){
   if(typeof bindReviewButton==="function") bindReviewButton();
 });
 </script>
+
+<script>document.addEventListener("DOMContentLoaded",function(){if(typeof bindMapUI==="function")bindMapUI();});</script>
