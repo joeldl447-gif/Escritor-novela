@@ -184,6 +184,18 @@ body.night #appMenu .menu-title{border-color:#333}
 .character-snippet:hover,.character-event:hover{filter:brightness(.96)}
 .night .character-profile details{border-color:#444}
 .night .character-snippet,.night .character-event{background:#292929}
+
+.timeline-filters{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.timeline-filter{font-size:13px;padding:7px 10px;border-radius:999px}
+.timeline-filter.active{font-weight:700;outline:2px solid currentColor}
+.timeline-item{position:relative;margin:0 0 0 12px;padding:12px 12px 14px 18px;border-left:2px solid #aaa;cursor:pointer}
+.timeline-item:hover{background:#f1f1f1}
+.timeline-dot{position:absolute;left:-7px;top:16px;width:12px;height:12px;border-radius:50%;background:currentColor}
+.timeline-title{font-weight:700}
+.timeline-meta{font-size:12px;color:#777;margin:4px 0}
+.timeline-snippet{line-height:1.4}
+.timeline-characters,.timeline-place{font-size:12px;margin-top:6px}
+.night .timeline-item:hover{background:#292929}
 </style>
 </head>
 <body>
@@ -204,6 +216,7 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="openLibrary();closeAppMenu()">▦ Biblioteca</button>
   <button onclick="openSearch();closeAppMenu()">🔎 Buscar en la novela</button>
   <button onclick="openCharacterProfiles();closeAppMenu()">👤 Fichas de personajes</button>
+  <button onclick="openTimelinePanel();closeAppMenu()">🕰️ Línea temporal</button>
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
   <button onclick="openBackupPanel();closeAppMenu()">🛡️ Historial y copias</button>
@@ -250,6 +263,22 @@ body.night #appMenu .menu-title{border-color:#333}
 </section>
 
 
+
+<section id="timelinePanel" class="overlayPanel">
+  <div class="panelInner">
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="icon" onclick="closeTimelinePanel()">←</button>
+      <h2 style="flex:1">🕰️ Línea temporal</h2>
+    </div>
+    <p class="muted">Orden aproximado de acontecimientos detectados. Cada elemento te lleva al fragmento original.</p>
+    <div class="timeline-filters">
+      <button class="timeline-filter active" data-tf="all" onclick="setTimelineFilter('all')">Todo</button>
+      <button class="timeline-filter" data-tf="time" onclick="setTimelineFilter('time')">Con fecha/hora</button>
+      <button class="timeline-filter" data-tf="event" onclick="setTimelineFilter('event')">Acontecimientos</button>
+    </div>
+    <div id="timelineResults"></div>
+  </div>
+</section>
 <section id="characterPanel" class="overlayPanel">
   <div class="panelInner">
     <div style="display:flex;gap:8px;align-items:center">
@@ -1235,6 +1264,81 @@ function ignoreAnalysisName(name){
 }
 function toggleAnalysisDetail(id){const e=$(id);if(e)e.classList.toggle("open")}
 
+
+let timelineFilter="all";
+function openTimelinePanel(){renderTimeline();$("timelinePanel").classList.add("open")}
+function closeTimelinePanel(){$("timelinePanel").classList.remove("open")}
+function setTimelineFilter(f){
+  timelineFilter=f;
+  document.querySelectorAll(".timeline-filter").forEach(b=>b.classList.toggle("active",b.dataset.tf===f));
+  renderTimeline();
+}
+function buildTimeline(){
+  const out=[];
+  const charNames=[...(state.characters||[]).map(x=>x.name),...(analysisState?.entities?.characters||[]).map(x=>x.name)]
+    .filter(Boolean);
+  const placeNames=[...(state.places||[]).map(x=>x.name),...(analysisState?.entities?.places||[]).map(x=>x.name)]
+    .filter(Boolean);
+
+  state.chapters.forEach((c,ci)=>{
+    searchTextOfChapter(c).forEach((p,pi)=>{
+      const timeMatch=p.match(/\b(?:a\s+las?\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:de la mañana|de la tarde|de la noche|h)?\b/i);
+      const dateMatch=p.match(/\b(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+\d{1,2}(?:\s+de\s+\d{4})?)?\b/i);
+      const eventMatch=/\b(llegó|llego|salió|salio|entró|entro|conoció|conocio|murió|murio|nació|nacio|escapó|escapo|besó|besa|descubrió|descubrio|encontró|encontro|decidió|decidio|volvió|volvio|viajó|viajo|partió|partio|regresó|regreso|comenzó|comenzo|terminó|termino)\b/i.test(p);
+
+      if(!timeMatch && !dateMatch && !eventMatch)return;
+
+      const chars=[...new Set(charNames.filter(n=>normalize(p).includes(normalize(n))))].slice(0,8);
+      const places=[...new Set(placeNames.filter(n=>normalize(p).includes(normalize(n))))].slice(0,5);
+
+      out.push({
+        ci,pi,
+        kind:(timeMatch||dateMatch)?"time":"event",
+        date:dateMatch?dateMatch[0]:"",
+        time:timeMatch?timeMatch[0]:"",
+        title:eventMatch?(p.length>130?p.slice(0,130)+"…":p):((dateMatch||timeMatch||{}).toString?.()||"Acontecimiento"),
+        text:p.length>240?p.slice(0,240)+"…":p,
+        chars,places
+      });
+    });
+  });
+  return out;
+}
+function renderTimeline(){
+  const box=$("timelineResults");if(!box)return;
+  box.innerHTML="";
+  let items=buildTimeline();
+  if(timelineFilter!=="all")items=items.filter(x=>timelineFilter==="time"?x.kind==="time":x.kind==="event");
+
+  // Stable reading order. When explicit dates are available, put them before undated events;
+  // without a full calendar parser we do not invent chronology.
+  items.sort((a,b)=>{
+    const ad=(a.date||"").toLowerCase(),bd=(b.date||"").toLowerCase();
+    if(ad&&bd&&ad!==bd)return ad.localeCompare(bd,"es");
+    if(!!a.date!==!!b.date)return a.date? -1:1;
+    if(a.ci!==b.ci)return a.ci-b.ci;
+    return a.pi-b.pi;
+  });
+
+  if(!items.length){
+    box.innerHTML='<div class="muted">Todavía no detecté acontecimientos suficientes para construir la línea temporal.</div>';
+    return;
+  }
+
+  items.forEach(x=>{
+    const d=document.createElement("div");d.className="timeline-item";
+    const when=[x.date,x.time].filter(Boolean).join(" · ");
+    d.innerHTML=`
+      <span class="timeline-dot"></span>
+      <div class="timeline-title">${esc(x.title)}</div>
+      <div class="timeline-meta">${esc(state.chapters[x.ci].name)} · párrafo ${x.pi+1}${when?" · "+esc(when):""}</div>
+      <div class="timeline-snippet">${esc(x.text)}</div>
+      ${x.chars.length?`<div class="timeline-characters">👤 ${x.chars.map(esc).join(" · ")}</div>`:""}
+      ${x.places.length?`<div class="timeline-place">📍 ${x.places.map(esc).join(" · ")}</div>`:""}`;
+    d.onclick=()=>jumpSearchResult(x.ci,x.pi);
+    box.appendChild(d);
+  });
+}
 function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}
 function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
 
