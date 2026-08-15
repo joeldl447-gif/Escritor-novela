@@ -251,6 +251,30 @@ body.night #appMenu .menu-title{border-color:#333}
 .map-route-label{font-size:12px;font-weight:700}
 .night .map-head,.night .map-hint,.night .map-editor{background:#242424;border-color:#444;color:#eee}
 .night .map-hint{color:#aaa}
+
+/* V35: Leaflet debe controlar el tamaño de sus teselas y del contenedor.
+   Las reglas globales de la app no deben deformar las imágenes del mapa. */
+#mapPanel{padding:0!important;overflow:hidden!important}
+#mapPanel .map-shell{position:absolute;inset:0;width:100%;height:100%;overflow:hidden}
+#mapPanel #baMap{width:100%!important;height:auto!important;min-height:0!important;flex:1 1 auto;overflow:hidden}
+#mapPanel .leaflet-container{width:100%!important;height:100%!important;background:#111;overflow:hidden}
+#mapPanel .leaflet-pane,
+#mapPanel .leaflet-map-pane,
+#mapPanel .leaflet-tile-pane,
+#mapPanel .leaflet-overlay-pane,
+#mapPanel .leaflet-marker-pane,
+#mapPanel .leaflet-shadow-pane,
+#mapPanel .leaflet-popup-pane{position:absolute}
+#mapPanel .leaflet-tile{
+  width:256px!important;
+  height:256px!important;
+  max-width:none!important;
+  max-height:none!important;
+  object-fit:initial!important;
+}
+#mapPanel .leaflet-tile-container{width:256px!important;height:256px!important}
+#mapPanel .leaflet-tile-pane{transform:none}
+#mapPanel .leaflet-control{z-index:800}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3wP7z6J2hF1y6Qqk9Jp5v7n8v0f2M=" crossorigin=""/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1980,7 +2004,14 @@ function initBuenosAiresMap(){
     return;
   }
   if(!baMap){
-    baMap=L.map("baMap",{zoomControl:true,attributionControl:true,preferCanvas:true}).setView([-34.6037,-58.3816],12);
+    baMap=L.map("baMap",{
+      zoomControl:true,
+      attributionControl:true,
+      preferCanvas:true,
+      zoomSnap:1,
+      zoomDelta:1,
+      wheelDebounceTime:40
+    }).setView([-34.6037,-58.3816],13);
     window.baSatellite=L.tileLayer(
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       {maxZoom:19,attribution:"Sources: Esri, DigitalGlobe, GeoEye, i-cubed, USDA FSA, USGS, AEX, Getmapping, Aerogrid, IGN, IGP, swisstopo, GIS User Community"}
@@ -1993,10 +2024,20 @@ function initBuenosAiresMap(){
     baMap.on("click",e=>{
       if(mapDrawingRoute)addRoutePoint(e.latlng);
     });
-    setTimeout(()=>baMap.invalidateSize(),80);
+    setTimeout(()=>{
+      baMap.invalidateSize(true);
+      baMap.setView([-34.6037,-58.3816],13,{animate:false});
+    },100);
+    setTimeout(()=>baMap.invalidateSize(true),500);
+    setTimeout(()=>baMap.invalidateSize(true),1200);
   }
   renderMapLayers();
-  setTimeout(()=>baMap.invalidateSize(),80);
+  setTimeout(()=>{
+      baMap.invalidateSize(true);
+      baMap.setView([-34.6037,-58.3816],13,{animate:false});
+    },100);
+    setTimeout(()=>baMap.invalidateSize(true),500);
+    setTimeout(()=>baMap.invalidateSize(true),1200);
 }
 function renderMapLayers(){
   ensureMapState();
