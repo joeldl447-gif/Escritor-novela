@@ -1,8 +1,8 @@
-V37 — CALLES MARCADAS + BOTONES CORREGIDOS
-- Se agregó modo 🛣️ Calle.
-- Tocás una calle real del mapa y se consulta OpenStreetMap/Overpass para identificarla.
-- La geometría de la calle queda marcada en amarillo.
-- Se puede editar el nombre/nota y eliminar la marca.
-- Se corrigió el botón de cierre del editor de rutas (el ID estaba mal conectado).
-- Se reforzaron los eventos táctiles/pointer de los botones y editores.
-- Requiere Internet para consultar calles.
+V39 — MAPA PRÁCTICO
+- Corregido el modo 📍 Punto: ahora el mapa usa un único modo de interacción y el toque se procesa de forma central.
+- 📝 Nota: coloca una nota directamente en el mapa y abre su editor.
+- Buscador de calles, direcciones y lugares mediante Nominatim/OpenStreetMap.
+- Los resultados permiten Ir, Marcar punto o, cuando devuelven geometría lineal, Marcar calle completa.
+- Se mantienen las notas editables de puntos y calles.
+- La selección manual de calle sigue disponible como alternativa, pero la búsqueda es la forma recomendada.
+- Requiere Internet para buscar lugares/calles.
