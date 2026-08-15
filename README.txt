@@ -1,11 +1,5 @@
-V41 — REPARACIÓN CONSERVADORA
-- Basada en V38 restaurada.
-- Corrige el error de sintaxis de selectStreetAt (await dentro de función no async).
-- Mantiene la clave de novela escritor_novela_v1 para conservar datos existentes.
-- Menú lateral con desplazamiento vertical real; Analizar novela vuelve a ser accesible.
-- 📍 Punto usa un único modo de interacción del mapa.
-- 📝 Nota coloca una nota en cualquier coordenada y abre el editor.
-- 🔎 Buscar queda visible arriba del mapa sin desplazamiento horizontal.
-- Busca calles/direcciones/lugares con Nominatim/OpenStreetMap.
-- Los resultados permiten ir, marcar punto o marcar una calle cuando hay geometría lineal.
-- La carga de state es tolerante: no sobrescribe el almacenamiento si el JSON guardado tiene un problema.
+V42 — PERSISTENCIA DE PANTALLA Y TEMA
+- Mantiene la pantalla abierta al recargar usando localStorage.
+- El modo nocturno se guarda tanto en la clave anterior como dentro del estado de la novela.
+- Al recargar se restaura el modo nocturno antes de cargar la interfaz.
+- Se conserva el mismo estado de capítulos y datos de V41.

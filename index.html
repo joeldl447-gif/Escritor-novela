@@ -880,7 +880,17 @@ function toggleNotes(){document.body.classList.toggle("notes-open")}
 function toggleChapters(){document.body.classList.toggle("chapters-open")}
 function toggleAppMenu(){document.body.classList.remove("chapters-open");$("appMenu").classList.toggle("open");$("appMenuBackdrop").classList.toggle("open")}
 function closeAppMenu(){$("appMenu").classList.remove("open");$("appMenuBackdrop").classList.remove("open")}
-function toggleNight(){document.body.classList.toggle("night");localStorage.setItem("escritor_night",document.body.classList.contains("night")?"1":"0")}
+function applyNightMode(on){
+  document.body.classList.toggle("night",!!on);
+  localStorage.setItem("escritor_night",on?"1":"0");
+  try{
+    if(state){
+      state.night=!!on;
+      localStorage.setItem(KEY,JSON.stringify(state));
+    }
+  }catch(e){console.warn("No se pudo guardar el modo nocturno",e)}
+}
+function toggleNight(){applyNightMode(!document.body.classList.contains("night"))}
 function toggleFocus(){document.body.classList.toggle("focus-mode")}
 function openLibrary(){renderLibrary();$("library").classList.add("open")}
 function closeLibrary(){$("library").classList.remove("open")}
@@ -1660,7 +1670,7 @@ let timelineFilter="all";
 let reviewState=[];
 
 /* V38 — navegación interna: recarga conserva la pantalla y Android/Back cierra el panel */
-const APP_PANEL_KEY="escritor_active_panel";
+const APP_PANEL_KEY="escritor_active_panel_v1";
 
 function currentAppPanel(){
   if($("mapPanel")?.classList.contains("open"))return "map";
@@ -1670,14 +1680,14 @@ function currentAppPanel(){
   return null;
 }
 function setAppPanel(panel){
-  sessionStorage.setItem(APP_PANEL_KEY,panel);
+  localStorage.setItem(APP_PANEL_KEY,panel);
   const current=history.state?.escritorPanel;
   if(current!==panel){
     history.pushState({escritorPanel:panel},"","#"+panel);
   }
 }
 function clearAppPanel(){
-  sessionStorage.removeItem(APP_PANEL_KEY);
+  localStorage.removeItem(APP_PANEL_KEY);
   if(history.state?.escritorPanel){
     history.replaceState({escritorPanel:null},"",location.pathname+location.search);
   }
@@ -1690,7 +1700,7 @@ function closeAnyAppPanel(){
   else if(p==="backup")closeBackupPanel();
 }
 function restoreAppPanel(){
-  const p=sessionStorage.getItem(APP_PANEL_KEY);
+  const p=localStorage.getItem(APP_PANEL_KEY);
   if(!p)return;
   if(p==="map")openMapPanel();
   else if(p==="timeline")openTimelinePanel();
@@ -1706,7 +1716,7 @@ window.addEventListener("popstate",function(){
     if(p==="timeline"){$("timelinePanel").classList.remove("open");closeTimelineEditor()}
     if(p==="review")$("reviewPanel").classList.remove("open");
     if(p==="backup")document.body.classList.remove("backup-open");
-    sessionStorage.removeItem(APP_PANEL_KEY);
+    localStorage.removeItem(APP_PANEL_KEY);
   }
 });
 
@@ -2982,12 +2992,17 @@ class SimpleZip{
 }
 function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return(~c)>>>0}
 
-if(localStorage.getItem("escritor_night")==="1")document.body.classList.add("night");
+try{
+  const savedNight=localStorage.getItem("escritor_night");
+  if(savedNight==="1" || state?.night===true)applyNightMode(true);
+  else applyNightMode(false);
+}catch(e){console.warn("No se pudo restaurar el modo nocturno",e)}
 load();
 updateAIStatus();
-setTimeout(()=>restoreAppPanel(),60);
+setTimeout(()=>restoreAppPanel(),120);
+setTimeout(()=>restoreAppPanel(),500);
 
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=11").catch(()=>{});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=12").catch(()=>{});
 </script>
 </body>
 </html>
