@@ -205,7 +205,7 @@ body.night #appMenu .menu-title{border-color:#333}
 .review-type{font-size:12px;font-weight:700;text-transform:uppercase;opacity:.7}
 .review-title{font-weight:700;margin:3px 0 6px}
 .review-detail{line-height:1.45}
-.review-action{margin-top:8px;position:relative;z-index:5}.review-action button{position:relative;z-index:6;pointer-events:auto;touch-action:manipulation;cursor:pointer}
+.review-action{margin-top:8px;position:relative;z-index:5}.review-action button{position:relative;z-index:6;pointer-events:auto;touch-action:manipulation;cursor:pointer;-webkit-tap-highlight-color:rgba(100,150,255,.25)}#runReviewBtn{position:relative;z-index:10;pointer-events:auto;touch-action:manipulation;cursor:pointer}
 .review-confidence{font-size:12px;opacity:.7;margin-top:5px}
 .night .review-item{border-color:#444}
 </style>
@@ -285,7 +285,7 @@ body.night #appMenu .menu-title{border-color:#333}
       <h2 style="flex:1">🔍 Modo revisión</h2>
     </div>
     <p class="muted">Busca posibles problemas de continuidad y coherencia. Son sugerencias: la novela nunca se modifica automáticamente.</p>
-    <button type="button" onclick="runReview()">🔎 Analizar novela</button>
+    <button type="button" id="runReviewBtn">🔎 Analizar novela</button>
     <div id="reviewSummary" class="muted" style="margin:10px 0"></div>
     <div id="reviewResults"></div>
   </div>
@@ -1294,13 +1294,13 @@ function toggleAnalysisDetail(id){const e=$(id);if(e)e.classList.toggle("open")}
 let timelineFilter="all";
 
 let reviewState=[];
-function openReviewPanel(){$("reviewPanel").classList.add("open");renderReview()}
+function openReviewPanel(){$("reviewPanel").classList.add("open");bindReviewButton();renderReview()}
 function closeReviewPanel(){$("reviewPanel").classList.remove("open")}
 function reviewAdd(arr,type,title,detail,ci,pi,confidence="media"){
   arr.push({type,title,detail,ci,pi,confidence});
 }
 function runReview(){
-  const button=document.querySelector("#reviewPanel button[onclick='runReview()']");
+  const button=document.getElementById("runReviewBtn");
   if(button){button.disabled=true;button.textContent="⏳ Analizando…";}
   try{
     const findings=[];
@@ -1433,6 +1433,17 @@ function runReview(){
     if(button){button.disabled=false;button.textContent="🔎 Analizar novela";}
   }
 }
+function bindReviewButton(){
+  const b=document.getElementById("runReviewBtn");
+  if(!b || b.dataset.bound==="1")return;
+  b.dataset.bound="1";
+  b.addEventListener("click",function(ev){
+    ev.preventDefault();
+    ev.stopPropagation();
+    runReview();
+  },{passive:false});
+}
+
 function jumpFromReview(ci,pi){
   $("reviewPanel")?.classList.remove("open");
   $("appMenu")?.classList.remove("open");
@@ -1958,3 +1969,8 @@ if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=7").
 </script>
 </body>
 </html>
+<script>
+document.addEventListener("DOMContentLoaded",function(){
+  if(typeof bindReviewButton==="function") bindReviewButton();
+});
+</script>
