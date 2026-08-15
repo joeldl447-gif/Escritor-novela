@@ -1,6 +1,12 @@
-V28 — BOTÓN DE REVISIÓN CORREGIDO
-- El botón Analizar novela ya no depende de onclick inline.
-- Se conecta mediante addEventListener y se enlaza al abrir el panel y al cargar la página.
-- Evita que un toque sea interceptado por otra capa.
-- Mantiene el análisis conservador de V27.
-- Cache actualizado a v28.
+V29 — LÍNEA TEMPORAL VISUAL
+- La línea temporal ahora es literalmente una línea horizontal.
+- Interfaz tipo grafo/nodos: espacio desplazable, zoom con rueda/pellizco y nodos arrastrables.
+- Arriba y abajo de la línea se alternan los momentos para facilitar la lectura.
+- + Momento: crea momentos manuales.
+- Tocar un nodo abre su editor.
+- Editar título, fecha/referencia, tipo, capítulo, párrafo y notas.
+- Eliminar momentos.
+- Ir al texto lleva al capítulo/párrafo asociado.
+- Detectar agrega nuevos acontecimientos automáticos sin borrar ni modificar los manuales.
+- Los momentos se guardan en localStorage y sobreviven a recargas.
+- Los momentos detectados de versiones anteriores se conservan solo si ya estaban en state.timeline; al abrir por primera vez V29 se siembran automáticamente desde la detección existente.

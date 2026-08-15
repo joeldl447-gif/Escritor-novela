@@ -185,18 +185,38 @@ body.night #appMenu .menu-title{border-color:#333}
 .night .character-profile details{border-color:#444}
 .night .character-snippet,.night .character-event{background:#292929}
 
-.timeline-filters{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
-.timeline-filter{font-size:13px;padding:7px 10px;border-radius:999px}
-.timeline-filter.active{font-weight:700;outline:2px solid currentColor}
-.timeline-item{position:relative;margin:0 0 0 12px;padding:12px 12px 14px 18px;border-left:2px solid #aaa;cursor:pointer}
-.timeline-item:hover{background:#f1f1f1}
-.timeline-dot{position:absolute;left:-7px;top:16px;width:12px;height:12px;border-radius:50%;background:currentColor}
-.timeline-title{font-weight:700}
-.timeline-meta{font-size:12px;color:#777;margin:4px 0}
-.timeline-snippet{line-height:1.4}
-.timeline-characters,.timeline-place{font-size:12px;margin-top:6px}
-.night .timeline-item:hover{background:#292929}
 
+.timeline-shell{position:absolute;inset:0;display:flex;flex-direction:column;min-width:0}
+.timeline-head{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid #ddd;flex-wrap:wrap}
+.timeline-head h2{margin:0;font-size:22px}
+.timeline-help{display:flex;gap:16px;flex-wrap:wrap;padding:8px 14px;font-size:12px;color:#777;border-bottom:1px solid #ddd}
+.timeline-canvas{position:relative;flex:1;min-height:360px;overflow:hidden;background:radial-gradient(circle at 1px 1px,#ddd 1px,transparent 1px);background-size:24px 24px;touch-action:none;cursor:grab}
+.timeline-canvas.panning{cursor:grabbing}
+.timeline-world{position:absolute;left:0;top:0;width:3200px;height:900px;transform-origin:0 0}
+.timeline-axis{position:absolute;left:120px;top:440px;width:2900px;height:4px;border-radius:4px;background:#777}
+.timeline-axis:before,.timeline-axis:after{content:"";position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;background:#777}
+.timeline-axis:before{left:-3px}.timeline-axis:after{right:-3px}
+.timeline-node{position:absolute;width:190px;min-height:76px;padding:10px 12px;border:1px solid #999;border-radius:10px;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.12);cursor:grab;user-select:none;touch-action:none}
+.timeline-node:active{cursor:grabbing}
+.timeline-node.above{top:340px}.timeline-node.below{top:465px}
+.timeline-node .timeline-node-dot{position:absolute;left:50%;width:14px;height:14px;border-radius:50%;background:currentColor;transform:translateX(-50%)}
+.timeline-node.above .timeline-node-dot{bottom:-51px}.timeline-node.below .timeline-node-dot{top:-51px}
+.timeline-node .timeline-node-stem{position:absolute;left:50%;width:2px;height:50px;background:#999;transform:translateX(-50%)}
+.timeline-node.above .timeline-node-stem{bottom:-50px}.timeline-node.below .timeline-node-stem{top:-50px}
+.timeline-node-title{font-weight:700;font-size:15px;line-height:1.2}
+.timeline-node-meta{font-size:11px;color:#777;margin-top:5px}
+.timeline-node-kind{display:inline-block;font-size:10px;margin-top:6px;padding:3px 6px;border-radius:999px;background:#eee}
+.timeline-empty{position:absolute;inset:160px 30px auto;text-align:center;color:#777;pointer-events:none}
+.timeline-editor{position:absolute;right:14px;top:14px;width:min(430px,calc(100% - 28px));max-height:calc(100% - 28px);overflow:auto;padding:14px;border:1px solid #aaa;border-radius:12px;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,.25);z-index:20}
+.timeline-editor-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.timeline-editor label{display:block;font-size:13px;margin:8px 0}
+.timeline-editor input,.timeline-editor select,.timeline-editor textarea{width:100%;box-sizing:border-box;margin-top:4px;padding:9px;border:1px solid #bbb;border-radius:8px;font:inherit;background:inherit;color:inherit}
+.timeline-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.timeline-editor-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+.timeline-editor .danger{border:1px solid #a33;color:#a33}
+.night .timeline-canvas{background-color:#151515;background-image:radial-gradient(circle at 1px 1px,#333 1px,transparent 1px)}
+.night .timeline-node,.night .timeline-editor{background:#242424;border-color:#555;color:#eee}
+.night .timeline-node-kind{background:#3a3a3a}.night .timeline-help,.night .timeline-head{border-color:#444}
 .review-summary{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
 .review-chip{font-size:12px;padding:6px 9px;border-radius:999px}
 .review-item{border:1px solid #ddd;border-radius:10px;padding:12px;margin:10px 0}
@@ -291,18 +311,63 @@ body.night #appMenu .menu-title{border-color:#333}
   </div>
 </section>
 <section id="timelinePanel" class="overlayPanel">
-  <div class="panelInner">
-    <div style="display:flex;gap:8px;align-items:center">
-      <button class="icon" onclick="closeTimelinePanel()">←</button>
+  <div class="timeline-shell">
+    <div class="timeline-head">
+      <button type="button" class="icon" id="timelineBack">←</button>
       <h2 style="flex:1">🕰️ Línea temporal</h2>
+      <button type="button" id="timelineAdd">＋ Momento</button>
+      <button type="button" id="timelineDetect">🧠 Detectar</button>
+      <button type="button" id="timelineCenter">Centrar</button>
     </div>
-    <p class="muted">Orden aproximado de acontecimientos detectados. Cada elemento te lleva al fragmento original.</p>
-    <div class="timeline-filters">
-      <button class="timeline-filter active" data-tf="all" onclick="setTimelineFilter('all')">Todo</button>
-      <button class="timeline-filter" data-tf="time" onclick="setTimelineFilter('time')">Con fecha/hora</button>
-      <button class="timeline-filter" data-tf="event" onclick="setTimelineFilter('event')">Acontecimientos</button>
+    <div class="timeline-help">
+      <span>Arrastrá el espacio para desplazarte.</span>
+      <span>Arrastrá los nodos para cambiar su posición.</span>
+      <span>Tocá un nodo para editarlo.</span>
     </div>
-    <div id="timelineResults"></div>
+    <div id="timelineCanvas" class="timeline-canvas">
+      <div id="timelineWorld" class="timeline-world">
+        <div id="timelineAxis" class="timeline-axis"></div>
+        <div id="timelineNodes"></div>
+      </div>
+    </div>
+    <div id="timelineEmpty" class="timeline-empty">
+      Todavía no hay momentos. Tocá <b>＋ Momento</b> para crear el primero.
+    </div>
+    <div id="timelineEditor" class="timeline-editor" hidden>
+      <div class="timeline-editor-head">
+        <strong id="timelineEditorTitle">Nuevo momento</strong>
+        <button type="button" id="timelineEditorClose">×</button>
+      </div>
+      <label>Título
+        <input id="timelineTitleInput" type="text" placeholder="Ej.: Mabel conoce a Francisco">
+      </label>
+      <div class="timeline-editor-grid">
+        <label>Fecha / referencia
+          <input id="timelineDateInput" type="text" placeholder="Ej.: 15 de marzo / esa noche">
+        </label>
+        <label>Tipo
+          <select id="timelineKindInput">
+            <option value="event">Acontecimiento</option>
+            <option value="time">Momento temporal</option>
+            <option value="note">Nota</option>
+          </select>
+        </label>
+        <label>Capítulo
+          <select id="timelineChapterInput"></select>
+        </label>
+        <label>Párrafo
+          <input id="timelineParagraphInput" type="number" min="1" value="1">
+        </label>
+      </div>
+      <label>Descripción / notas
+        <textarea id="timelineTextInput" rows="4" placeholder="Qué ocurre, qué cambia, información importante…"></textarea>
+      </label>
+      <div class="timeline-editor-actions">
+        <button type="button" id="timelineSave">Guardar</button>
+        <button type="button" id="timelineDelete" class="danger">Eliminar</button>
+        <button type="button" id="timelineJump">📍 Ir al texto</button>
+      </div>
+    </div>
   </div>
 </section>
 <section id="characterPanel" class="overlayPanel">
@@ -442,6 +507,7 @@ let state=JSON.parse(localStorage.getItem(KEY)||"null")||{
 state.characters=state.characters||[];
 state.places=state.places||[];
 state.history=state.history||{};
+state.timeline=Array.isArray(state.timeline)?state.timeline:[];
 let selected=null;
 
 const $=id=>document.getElementById(id);
@@ -1467,79 +1533,213 @@ function renderReview(){
     box.appendChild(d);
   });
 }
-function openTimelinePanel(){renderTimeline();$("timelinePanel").classList.add("open")}
-function closeTimelinePanel(){$("timelinePanel").classList.remove("open")}
-function setTimelineFilter(f){
-  timelineFilter=f;
-  document.querySelectorAll(".timeline-filter").forEach(b=>b.classList.toggle("active",b.dataset.tf===f));
-  renderTimeline();
+
+let timelineView={x:0,y:0,scale:1};
+let timelineDrag=null;
+let timelinePan=null;
+let timelineEditingId=null;
+
+function ensureTimelineState(){
+  if(!Array.isArray(state.timeline))state.timeline=[];
 }
-function buildTimeline(){
-  const out=[];
-  const charNames=[...(state.characters||[]).map(x=>x.name),...(analysisState?.entities?.characters||[]).map(x=>x.name)]
-    .filter(Boolean);
-  const placeNames=[...(state.places||[]).map(x=>x.name),...(analysisState?.entities?.places||[]).map(x=>x.name)]
-    .filter(Boolean);
-
-  state.chapters.forEach((c,ci)=>{
-    searchTextOfChapter(c).forEach((p,pi)=>{
-      const timeMatch=p.match(/\b(?:a\s+las?\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:de la mañana|de la tarde|de la noche|h)?\b/i);
-      const dateMatch=p.match(/\b(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+\d{1,2}(?:\s+de\s+\d{4})?)?\b/i);
-      const eventMatch=/\b(llegó|llego|salió|salio|entró|entro|conoció|conocio|murió|murio|nació|nacio|escapó|escapo|besó|besa|descubrió|descubrio|encontró|encontro|decidió|decidio|volvió|volvio|viajó|viajo|partió|partio|regresó|regreso|comenzó|comenzo|terminó|termino)\b/i.test(p);
-
-      if(!timeMatch && !dateMatch && !eventMatch)return;
-
-      const chars=[...new Set(charNames.filter(n=>normalize(p).includes(normalize(n))))].slice(0,8);
-      const places=[...new Set(placeNames.filter(n=>normalize(p).includes(normalize(n))))].slice(0,5);
-
-      out.push({
-        ci,pi,
-        kind:(timeMatch||dateMatch)?"time":"event",
-        date:dateMatch?dateMatch[0]:"",
-        time:timeMatch?timeMatch[0]:"",
-        title:eventMatch?(p.length>130?p.slice(0,130)+"…":p):((dateMatch||timeMatch||{}).toString?.()||"Acontecimiento"),
-        text:p.length>240?p.slice(0,240)+"…":p,
-        chars,places
-      });
+function timelineId(){return "tm_"+Date.now()+"_"+Math.random().toString(36).slice(2,8)}
+function saveTimeline(){localStorage.setItem(KEY,JSON.stringify(state))}
+function openTimelinePanel(){
+  ensureTimelineState();
+  $("timelinePanel").classList.add("open");
+  if(!state.timeline.length)seedTimelineFromDetection(false);
+  populateTimelineChapterSelect();
+  renderTimelineCanvas();
+  setTimeout(centerTimeline,40);
+}
+function closeTimelinePanel(){$("timelinePanel").classList.remove("open");closeTimelineEditor()}
+function seedTimelineFromDetection(force){
+  ensureTimelineState();
+  const detected=buildTimeline();
+  const existing=new Set(state.timeline.map(x=>x.sourceKey).filter(Boolean));
+  let added=0;
+  detected.forEach((x,i)=>{
+    const sourceKey=`${x.ci}:${x.pi}:${normalize(x.title).slice(0,70)}`;
+    if(!force && existing.has(sourceKey))return;
+    if(state.timeline.some(m=>m.ci===x.ci&&m.pi===x.pi&&normalize(m.title)===normalize(x.title)))return;
+    state.timeline.push({
+      id:timelineId(),title:x.title,date:x.date||x.time||"",
+      kind:x.kind||"event",text:x.text||"",ci:x.ci,pi:x.pi,
+      manual:false,sourceKey,x:220+i*260
     });
+    added++;
   });
-  return out;
+  if(added)saveTimeline();
+  return added;
 }
-function renderTimeline(){
-  const box=$("timelineResults");if(!box)return;
-  box.innerHTML="";
-  let items=buildTimeline();
-  if(timelineFilter!=="all")items=items.filter(x=>timelineFilter==="time"?x.kind==="time":x.kind==="event");
-
-  // Stable reading order. When explicit dates are available, put them before undated events;
-  // without a full calendar parser we do not invent chronology.
-  items.sort((a,b)=>{
-    const ad=(a.date||"").toLowerCase(),bd=(b.date||"").toLowerCase();
-    if(ad&&bd&&ad!==bd)return ad.localeCompare(bd,"es");
-    if(!!a.date!==!!b.date)return a.date? -1:1;
-    if(a.ci!==b.ci)return a.ci-b.ci;
-    return a.pi-b.pi;
+function populateTimelineChapterSelect(){
+  const sel=$("timelineChapterInput");if(!sel)return;
+  sel.innerHTML="";
+  state.chapters.forEach((c,i)=>{
+    const o=document.createElement("option");o.value=i;o.textContent=c.name;sel.appendChild(o);
   });
-
-  if(!items.length){
-    box.innerHTML='<div class="muted">Todavía no detecté acontecimientos suficientes para construir la línea temporal.</div>';
+}
+function timelineWorldPoint(clientX,clientY){
+  const r=$("timelineCanvas").getBoundingClientRect();
+  return {x:(clientX-r.left-timelineView.x)/timelineView.scale,y:(clientY-r.top-timelineView.y)/timelineView.scale};
+}
+function renderTimelineCanvas(){
+  ensureTimelineState();
+  const nodes=$("timelineNodes"),world=$("timelineWorld"),empty=$("timelineEmpty");
+  nodes.innerHTML="";
+  empty.style.display=state.timeline.length?"none":"block";
+  world.style.transform=`translate(${timelineView.x}px,${timelineView.y}px) scale(${timelineView.scale})`;
+  state.timeline.forEach((m,i)=>{
+    if(typeof m.x!=="number")m.x=220+i*260;
+    const d=document.createElement("div");
+    d.className="timeline-node "+(i%2===0?"above":"below");
+    d.dataset.id=m.id;
+    d.style.left=m.x+"px";
+    d.innerHTML=`
+      <span class="timeline-node-dot"></span><span class="timeline-node-stem"></span>
+      <div class="timeline-node-title">${esc(m.title||"Momento sin título")}</div>
+      <div class="timeline-node-meta">${esc(m.date||"Sin fecha")} · ${esc(state.chapters[m.ci]?.name||"Sin capítulo")}</div>
+      <span class="timeline-node-kind">${m.manual?"✏️ Manual":"🧠 Detectado"}</span>`;
+    d.addEventListener("pointerdown",e=>timelineNodeDown(e,m));
+    d.addEventListener("click",e=>{
+      if(d.dataset.moved==="1"){d.dataset.moved="";return}
+      openTimelineEditor(m.id);
+    });
+    nodes.appendChild(d);
+  });
+  saveTimeline();
+}
+function timelineNodeDown(e,m){
+  e.stopPropagation();
+  const d=e.currentTarget;
+  const p=timelineWorldPoint(e.clientX,e.clientY);
+  timelineDrag={id:m.id,pointerId:e.pointerId,startX:p.x,origX:m.x,moved:false,el:d};
+  d.setPointerCapture?.(e.pointerId);
+}
+function timelinePointerDown(e){
+  if(e.target.closest(".timeline-node"))return;
+  timelinePan={pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,viewX:timelineView.x,viewY:timelineView.y};
+  $("timelineCanvas").setPointerCapture?.(e.pointerId);
+  $("timelineCanvas").classList.add("panning");
+}
+function timelinePointerMove(e){
+  if(timelineDrag&&timelineDrag.pointerId===e.pointerId){
+    const p=timelineWorldPoint(e.clientX,e.clientY);
+    const m=state.timeline.find(x=>x.id===timelineDrag.id);
+    if(!m)return;
+    const dx=p.x-timelineDrag.startX;
+    if(Math.abs(dx)>4)timelineDrag.moved=true;
+    m.x=Math.max(140,Math.min(3000,timelineDrag.origX+dx));
+    const node=timelineDrag.el;
+    node.style.left=m.x+"px";
+    node.dataset.moved=timelineDrag.moved?"1":"";
     return;
   }
-
-  items.forEach(x=>{
-    const d=document.createElement("div");d.className="timeline-item";
-    const when=[x.date,x.time].filter(Boolean).join(" · ");
-    d.innerHTML=`
-      <span class="timeline-dot"></span>
-      <div class="timeline-title">${esc(x.title)}</div>
-      <div class="timeline-meta">${esc(state.chapters[x.ci].name)} · párrafo ${x.pi+1}${when?" · "+esc(when):""}</div>
-      <div class="timeline-snippet">${esc(x.text)}</div>
-      ${x.chars.length?`<div class="timeline-characters">👤 ${x.chars.map(esc).join(" · ")}</div>`:""}
-      ${x.places.length?`<div class="timeline-place">📍 ${x.places.map(esc).join(" · ")}</div>`:""}`;
-    d.onclick=()=>jumpSearchResult(x.ci,x.pi);
-    box.appendChild(d);
-  });
+  if(timelinePan&&timelinePan.pointerId===e.pointerId){
+    timelineView.x=timelinePan.viewX+(e.clientX-timelinePan.startX);
+    timelineView.y=timelinePan.viewY+(e.clientY-timelinePan.startY);
+    $("timelineWorld").style.transform=`translate(${timelineView.x}px,${timelineView.y}px) scale(${timelineView.scale})`;
+  }
 }
+function timelinePointerUp(e){
+  if(timelineDrag&&timelineDrag.pointerId===e.pointerId){
+    saveTimeline();timelineDrag=null;return;
+  }
+  if(timelinePan&&timelinePan.pointerId===e.pointerId){
+    timelinePan=null;$("timelineCanvas").classList.remove("panning");
+  }
+}
+function timelineWheel(e){
+  e.preventDefault();
+  const r=$("timelineCanvas").getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const old=timelineView.scale,next=Math.max(.45,Math.min(2.2,old*(e.deltaY<0?1.1:.9)));
+  const wx=(mx-timelineView.x)/old,wy=(my-timelineView.y)/old;
+  timelineView.scale=next;
+  timelineView.x=mx-wx*next;timelineView.y=my-wy*next;
+  $("timelineWorld").style.transform=`translate(${timelineView.x}px,${timelineView.y}px) scale(${timelineView.scale})`;
+}
+function centerTimeline(){
+  const c=$("timelineCanvas"),w=c.clientWidth;
+  timelineView.scale=Math.min(1,Math.max(.65,w/900));
+  timelineView.x=Math.max(10,(w-(3100*timelineView.scale))/2);
+  timelineView.y=Math.max(0,(c.clientHeight-900*timelineView.scale)/2);
+  $("timelineWorld").style.transform=`translate(${timelineView.x}px,${timelineView.y}px) scale(${timelineView.scale})`;
+}
+function openTimelineEditor(id=null){
+  timelineEditingId=id;
+  const m=id?state.timeline.find(x=>x.id===id):{
+    id:null,title:"",date:"",kind:"event",text:"",ci:state.current||0,pi:0,manual:true,x:220+(state.timeline.length*260)
+  };
+  if(!m)return;
+  populateTimelineChapterSelect();
+  $("timelineEditorTitle").textContent=id?"Editar momento":"Nuevo momento";
+  $("timelineTitleInput").value=m.title||"";
+  $("timelineDateInput").value=m.date||"";
+  $("timelineKindInput").value=m.kind||"event";
+  $("timelineChapterInput").value=String(m.ci??0);
+  $("timelineParagraphInput").value=String((m.pi??0)+1);
+  $("timelineTextInput").value=m.text||"";
+  $("timelineDelete").style.display=id?"inline-block":"none";
+  $("timelineJump").style.display=id?"inline-block":"none";
+  $("timelineEditor").hidden=false;
+}
+function closeTimelineEditor(){$("timelineEditor").hidden=true;timelineEditingId=null}
+function saveTimelineMoment(){
+  ensureTimelineState();
+  const title=$("timelineTitleInput").value.trim();
+  if(!title){$("timelineTitleInput").focus();return}
+  const ci=Math.max(0,Math.min(state.chapters.length-1,Number($("timelineChapterInput").value)||0));
+  const pi=Math.max(0,(Number($("timelineParagraphInput").value)||1)-1);
+  if(timelineEditingId){
+    const m=state.timeline.find(x=>x.id===timelineEditingId);
+    if(m)Object.assign(m,{title,date:$("timelineDateInput").value.trim(),kind:$("timelineKindInput").value,text:$("timelineTextInput").value.trim(),ci,pi,manual:true});
+  }else{
+    state.timeline.push({id:timelineId(),title,date:$("timelineDateInput").value.trim(),kind:$("timelineKindInput").value,text:$("timelineTextInput").value.trim(),ci,pi,manual:true,x:240+state.timeline.length*260});
+  }
+  saveTimeline();closeTimelineEditor();renderTimelineCanvas();
+}
+function deleteTimelineMoment(){
+  if(!timelineEditingId)return;
+  const m=state.timeline.find(x=>x.id===timelineEditingId);
+  if(!m)return;
+  if(!confirm(`¿Querés eliminar "${m.title}" de la línea temporal?`))return;
+  state.timeline=state.timeline.filter(x=>x.id!==timelineEditingId);
+  saveTimeline();closeTimelineEditor();renderTimelineCanvas();
+}
+function jumpTimelineMoment(){
+  if(!timelineEditingId)return;
+  const m=state.timeline.find(x=>x.id===timelineEditingId);
+  if(!m)return;
+  state.current=Math.max(0,Math.min(state.chapters.length-1,m.ci||0));
+  load();closeTimelinePanel();setTimeout(()=>jumpSearchResult(m.ci||0,m.pi||0),80);
+}
+function detectTimelineMoments(){
+  const added=seedTimelineFromDetection(true);
+  renderTimelineCanvas();
+  alert(added?`Se agregaron ${added} momentos detectados. Los momentos manuales no se modificaron.`:"No encontré momentos nuevos.");
+}
+function bindTimelineUI(){
+  const c=$("timelineCanvas");
+  if(!c||c.dataset.bound==="1")return;
+  c.dataset.bound="1";
+  c.addEventListener("pointerdown",timelinePointerDown);
+  c.addEventListener("pointermove",timelinePointerMove);
+  c.addEventListener("pointerup",timelinePointerUp);
+  c.addEventListener("pointercancel",timelinePointerUp);
+  c.addEventListener("wheel",timelineWheel,{passive:false});
+  $("timelineBack").addEventListener("click",closeTimelinePanel);
+  $("timelineAdd").addEventListener("click",()=>openTimelineEditor());
+  $("timelineDetect").addEventListener("click",detectTimelineMoments);
+  $("timelineCenter").addEventListener("click",centerTimeline);
+  $("timelineEditorClose").addEventListener("click",closeTimelineEditor);
+  $("timelineSave").addEventListener("click",saveTimelineMoment);
+  $("timelineDelete").addEventListener("click",deleteTimelineMoment);
+  $("timelineJump").addEventListener("click",jumpTimelineMoment);
+}
+bindTimelineUI();
+window.addEventListener("resize",()=>{if($("timelinePanel")?.classList.contains("open"))centerTimeline()});
+
 function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}
 function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
 
@@ -1754,6 +1954,7 @@ async function importFullBackup(file){
     if(data.ignoredAnalysis!==undefined && data.ignoredAnalysis!==null)localStorage.setItem("escritor_analysis_ignored",data.ignoredAnalysis);
     state=data.state;
     state.history=state.history||{};
+state.timeline=Array.isArray(state.timeline)?state.timeline:[];
     state.characters=state.characters||[];
     state.places=state.places||[];
     load();
@@ -1866,6 +2067,7 @@ function restoreAutoBackup(index){
   save();
   state=JSON.parse(JSON.stringify(item.data));
   state.history=state.history||{};
+state.timeline=Array.isArray(state.timeline)?state.timeline:[];
   localStorage.setItem(KEY,JSON.stringify(state));
   load();
   renderBackupPanel();
