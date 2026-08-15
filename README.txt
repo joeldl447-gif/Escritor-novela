@@ -1,10 +1,8 @@
-V25 — MODO REVISIÓN
-- Detecta posibles inconsistencias de edad.
-- Señala variantes de nombres.
-- Señala posibles cambios de ubicación demasiado cercanos.
-- Detecta objetos recurrentes que podrían necesitar revisión de continuidad.
-- Detecta personajes que desaparecen durante varios capítulos.
-- Detecta comienzos de párrafos potencialmente repetidos.
-- Cada sugerencia incluye nivel de confianza y botón para saltar al fragmento.
-- No modifica nunca el texto automáticamente.
-- Mantiene línea temporal V24, fichas V23, búsqueda, copias/historial e IA local segura.
+V26 — REVISIÓN CORREGIDA
+- Eliminadas las heurísticas de ubicación que daban falsos positivos como «una nube de vapor» o «la frente».
+- Eliminados los avisos genéricos de objetos recurrentes.
+- Se priorizan comprobaciones explícitas: edades contradictorias, párrafos repetidos, posible muerte seguida de aparición, salidas/regresos y posibles nombres abreviados.
+- Cada resultado tiene nivel de confianza.
+- Los botones «Ir al fragmento» tienen manejo táctil explícito y cierran el panel antes de saltar al texto.
+- El panel de revisión queda por encima de las capas del menú y recibe toques correctamente.
+- No modifica el manuscrito automáticamente.
