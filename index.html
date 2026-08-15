@@ -29,6 +29,11 @@ main{display:flex;max-width:1100px;margin:auto;min-height:calc(100vh - 58px)}
 #editor p.selected{background:#fff8d7}
 #side{width:300px;border-left:1px solid #ddd;background:#fafafa;padding:16px}
 #side h3{margin-top:0}
+.note-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+#noteToggle{padding:6px 9px;border-radius:7px}
+#noteText{display:none}
+#side.note-editing #noteText{display:block}
+#side.note-editing #selectedLabel{font-weight:700}
 #noteText{width:100%;min-height:180px;border:1px solid #ccc;border-radius:8px;padding:10px;font:15px system-ui;resize:vertical}
 .muted{color:#777;font-size:13px}
 #stats{font-size:12px;color:#777;margin-left:auto}
@@ -497,7 +502,10 @@ body.night #appMenu .menu-title{border-color:#333}
   </section>
 
   <aside id="side">
-    <h3>Nota del párrafo</h3>
+    <div class="note-header">
+      <h3>Nota del párrafo</h3>
+      <button type="button" id="noteToggle" title="Editar nota del párrafo">✏️</button>
+    </div>
     <div id="selectedLabel" class="muted">Seleccioná un párrafo.</div><br>
     <textarea id="noteText" placeholder="Escribí una nota sobre este párrafo..."></textarea><br><br>
     <button onclick="saveNote()">Guardar nota</button>
@@ -558,15 +566,10 @@ function renderChapters(){
   });
 }
 function bindParagraphs(){
+  // Tocar/escribir un párrafo ya no abre el panel de notas.
+  // La edición de notas se activa únicamente desde el icono correspondiente.
   document.querySelectorAll("#editor p").forEach((p,i)=>{
-    p.onclick=e=>{
-      e.stopPropagation();selected=i;
-      document.querySelectorAll("#editor p").forEach(x=>x.classList.remove("selected"));
-      p.classList.add("selected");
-      let n=state.chapters[state.current].notes||{};
-      $("noteText").value=n[i]||"";$("selectedLabel").textContent="Párrafo "+(i+1);
-      document.body.classList.add("notes-open");
-    };
+    p.onclick=()=>{ selected=i; };
   });
 }
 function stats(){
@@ -591,7 +594,22 @@ $("editorZoomOut").addEventListener("click",()=>changeEditorZoom(-.1));
 $("editorZoomIn").addEventListener("click",()=>changeEditorZoom(.1));
 $("editorZoomReset").addEventListener("click",()=>setEditorZoom(1));
 
-$("editor").addEventListener("input",()=>{bindParagraphs();save()});
+$("editor").addEventListener("input",()=>{bindParagraphs();updateSelectedParagraphFromCaret();save()});
+
+function updateSelectedParagraphFromCaret(){
+  const sel=window.getSelection?.();
+  if(!sel||!sel.rangeCount)return;
+  let node=sel.anchorNode;
+  if(node&&node.nodeType===3)node=node.parentElement;
+  const p=node?.closest?.("#editor p");
+  if(!p)return;
+  const ps=[...document.querySelectorAll("#editor p")];
+  const i=ps.indexOf(p);
+  if(i>=0)selected=i;
+}
+$("editor").addEventListener("keyup",updateSelectedParagraphFromCaret);
+$("editor").addEventListener("mouseup",updateSelectedParagraphFromCaret);
+
 
 $("title").addEventListener("input",save);
 

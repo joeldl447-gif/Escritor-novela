@@ -1,6 +1,6 @@
-V31
-- Zoom independiente para la zona de escritura: 60% a 150%.
-- Botones A−, porcentaje y A＋ en la barra del editor.
-- El zoom se guarda y se conserva al volver a abrir la novela.
-- En celular también funciona con pellizco de dos dedos sobre el texto.
-- El zoom afecta solamente la escritura, no el resto de la interfaz.
+V32
+- Tocar un párrafo ya no abre el editor de notas.
+- El panel de notas se activa únicamente al tocar el icono ✏️.
+- Escribir y mover el cursor no abre ningún panel.
+- El párrafo bajo el cursor queda identificado para que el icono sepa dónde guardar la nota.
+- Mantiene el zoom de escritura V31.
