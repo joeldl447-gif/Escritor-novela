@@ -285,7 +285,7 @@ body.night #appMenu .menu-title{border-color:#333}
       <h2 style="flex:1">🔍 Modo revisión</h2>
     </div>
     <p class="muted">Busca posibles problemas de continuidad y coherencia. Son sugerencias: la novela nunca se modifica automáticamente.</p>
-    <button onclick="runReview()">🔎 Analizar novela</button>
+    <button type="button" onclick="runReview()">🔎 Analizar novela</button>
     <div id="reviewSummary" class="muted" style="margin:10px 0"></div>
     <div id="reviewResults"></div>
   </div>
@@ -1300,117 +1300,138 @@ function reviewAdd(arr,type,title,detail,ci,pi,confidence="media"){
   arr.push({type,title,detail,ci,pi,confidence});
 }
 function runReview(){
-  const findings=[];
-  const chapters=state.chapters.map((c,ci)=>({ci,name:c.name,paragraphs:searchTextOfChapter(c)}));
-  const charNames=[...(state.characters||[]).map(x=>x.name),...(analysisState?.entities?.characters||[]).map(x=>x.name)]
-    .filter(Boolean).filter((v,i,a)=>a.findIndex(x=>normalize(x)===normalize(v))===i);
+  const button=document.querySelector("#reviewPanel button[onclick='runReview()']");
+  if(button){button.disabled=true;button.textContent="⏳ Analizando…";}
+  try{
+    const findings=[];
+    const chapters=state.chapters.map((c,ci)=>({
+      ci,name:String(c.name||("Capítulo "+(ci+1))),
+      paragraphs:searchTextOfChapter(c)
+    }));
+    const rows=[];
+    chapters.forEach(c=>c.paragraphs.forEach((p,pi)=>{
+      const text=String(p||"");
+      rows.push({ci:c.ci,pi,text,norm:normalize(text)});
+    }));
 
-  // Explicit facts are safer than guessing from prepositions or generic words.
-  const add=(type,title,detail,ci,pi,confidence="media")=>findings.push({type,title,detail,ci,pi,confidence});
+    const charNames=[...(state.characters||[]).map(x=>x&&x.name),...(analysisState?.entities?.characters||[]).map(x=>x&&x.name)]
+      .map(x=>String(x||"").trim()).filter(Boolean)
+      .filter((v,i,a)=>a.findIndex(x=>normalize(x)===normalize(v))===i);
 
-  // 1) Explicit ages attached to a known character.
-  const ages={};
-  chapters.forEach(c=>c.paragraphs.forEach((p,pi)=>{
-    charNames.forEach(name=>{
-      const n=searchEscReg(name);
-      const rx=new RegExp("\\b"+n+"\\b[^.?!]{0,100}\\b(\\d{1,3})\\s+años?\\b","i");
-      const rx2=new RegExp("\\b(\\d{1,3})\\s+años?\\b[^.?!]{0,100}\\b"+n+"\\b","i");
-      const m=p.match(rx)||p.match(rx2);
-      if(m)(ages[name]||(ages[name]=[])).push({age:Number(m[1]),ci:c.ci,pi});
-    });
-  }));
-  Object.entries(ages).forEach(([name,vals])=>{
-    const unique=[...new Set(vals.map(x=>x.age))];
-    if(unique.length>1){
-      const ref=vals[vals.length-1];
-      add("warning",`Edad de ${name} posiblemente inconsistente`,
-        `El texto asigna edades diferentes: ${unique.join(" y ")} años. Revisá los dos fragmentos.`,
-        ref.ci,ref.pi,"alta");
+    const add=(type,title,detail,ci,pi,confidence="media")=>{
+      findings.push({type,title,detail,ci:Number(ci)||0,pi:Number(pi)||0,confidence});
+    };
+
+    // 1. Explicit age contradictions.
+    const ages={};
+    for(const row of rows){
+      for(const name of charNames){
+        const n=searchEscReg(name);
+        const rx1=new RegExp("\\b"+n+"\\b[^.?!]{0,100}\\b(\\d{1,3})\\s+años?\\b","i");
+        const rx2=new RegExp("\\b(\\d{1,3})\\s+años?\\b[^.?!]{0,100}\\b"+n+"\\b","i");
+        const m=row.text.match(rx1)||row.text.match(rx2);
+        if(m)(ages[name]||(ages[name]=[])).push({age:Number(m[1]),row});
+      }
     }
-  });
-
-  // 2) Exact repeated paragraphs / strong duplicate starts.
-  const seen=new Map();
-  chapters.forEach(c=>c.paragraphs.forEach((p,pi)=>{
-    const key=normalize(p).replace(/\s+/g," ");
-    if(key.length<120)return;
-    const short=key.slice(0,180);
-    if(seen.has(short)){
-      const old=seen.get(short);
-      add("warning","Fragmentos posiblemente repetidos",
-        `Este párrafo comienza prácticamente igual que otro de ${chapters[old.ci].name}, párrafo ${old.pi+1}.`,
-        c.ci,pi,"alta");
-    }else seen.set(short,{ci:c.ci,pi});
-  }));
-
-  // 3) Explicit character death + later appearances.
-  const deathWords=/\b(murió|murio|muerto|muerta|falleció|fallecio|asesinaron|asesinado|asesinada)\b/i;
-  const death={};
-  chapters.forEach(c=>c.paragraphs.forEach((p,pi)=>{
-    charNames.forEach(name=>{
-      if(normalize(p).includes(normalize(name)) && deathWords.test(p)){
-        (death[name]||(death[name]=[])).push({ci:c.ci,pi});
+    Object.entries(ages).forEach(([name,vals])=>{
+      const unique=[...new Set(vals.map(x=>x.age))];
+      if(unique.length>1){
+        const ref=vals[vals.length-1].row;
+        add("warning",`Edad de ${name} posiblemente inconsistente`,
+          `El texto asigna edades diferentes: ${unique.join(" y ")} años. Revisá los fragmentos donde aparecen.`,
+          ref.ci,ref.pi,"alta");
       }
     });
-  }));
-  Object.entries(death).forEach(([name,vals])=>{
-    const firstDeath=vals[0];
-    let later=null;
-    for(const c of chapters){
-      if(c.ci<firstDeath.ci)continue;
-      for(let pi=0;pi<c.paragraphs.length;pi++){
-        if(c.ci===firstDeath.ci && pi<=firstDeath.pi)continue;
-        if(normalize(c.paragraphs[pi]).includes(normalize(name)) && !deathWords.test(c.paragraphs[pi])){
-          later={ci:c.ci,pi};break;
+
+    // 2. Strongly repeated paragraphs.
+    const seen=new Map();
+    rows.forEach(row=>{
+      const key=row.norm.replace(/\s+/g," ");
+      if(key.length<120)return;
+      const short=key.slice(0,180);
+      if(seen.has(short)){
+        const old=seen.get(short);
+        add("warning","Fragmentos posiblemente repetidos",
+          `Este párrafo comienza prácticamente igual que otro de ${chapters[old.ci].name}, párrafo ${old.pi+1}.`,
+          row.ci,row.pi,"alta");
+      }else seen.set(short,row);
+    });
+
+    // 3. Possible death followed by later appearance.
+    const deathWords=/\b(murió|murio|muerto|muerta|falleció|fallecio|asesinaron|asesinado|asesinada)\b/i;
+    const deathRows={};
+    rows.forEach(row=>{
+      charNames.forEach(name=>{
+        if(row.norm.includes(normalize(name)) && deathWords.test(row.text)){
+          (deathRows[name]||(deathRows[name]=[])).push(row);
         }
+      });
+    });
+    Object.entries(deathRows).forEach(([name,deaths])=>{
+      const death=deaths[0];
+      const later=rows.find(row=>{
+        if(row.ci<death.ci)return false;
+        if(row.ci===death.ci && row.pi<=death.pi)return false;
+        return row.norm.includes(normalize(name)) && !deathWords.test(row.text);
+      });
+      if(later){
+        add("warning",`${name} aparece después de una posible muerte`,
+          `Se encontró una referencia a una muerte en ${chapters[death.ci].name}, pero el personaje vuelve a aparecer después. Puede ser una falsa alarma si la muerte no era literal.`,
+          later.ci,later.pi,"media");
       }
-      if(later)break;
-    }
-    if(later){
-      add("warning",`${name} aparece después de una posible muerte`,
-        `Se encontró una referencia a una muerte en ${chapters[firstDeath.ci].name}, pero el personaje vuelve a aparecer después. Puede ser una falsa alarma si la muerte no era literal.`,
-        later.ci,later.pi,"media");
-    }
-  });
+    });
 
-  // 4) Explicit disappearance/return wording. This is a reminder, not a contradiction.
-  const returnWords=/\b(regresó|regreso|volvió|volvio|reapareció|reaparecio|de vuelta|regresaba)\b/i;
-  const absentWords=/\b(desapareció|desaparecio|se fue|partió|partio|se marchó|se marcho)\b/i;
-  chapters.forEach(c=>c.paragraphs.forEach((p,pi)=>{
-    if(returnWords.test(p)&&charNames.some(n=>normalize(p).includes(normalize(n)))){
-      add("info","Revisar regreso de un personaje",
-        "El texto marca un regreso o reaparición. Revisá si la ausencia previa quedó clara para el lector.",
-        c.ci,pi,"baja");
-    } else if(absentWords.test(p)&&charNames.some(n=>normalize(p).includes(normalize(n)))){
-      add("info","Revisar salida de un personaje",
-        "El texto marca una partida o desaparición. Puede ser útil comprobar que su siguiente aparición tenga continuidad.",
-        c.ci,pi,"baja");
-    }
-  }));
+    // 4. Explicit departures/returns, only when a known character is actually named.
+    const returnWords=/\b(regresó|regreso|volvió|volvio|reapareció|reaparecio|de vuelta|regresaba)\b/i;
+    const absentWords=/\b(desapareció|desaparecio|se fue|partió|partio|se marchó|se marcho)\b/i;
+    rows.forEach(row=>{
+      const who=charNames.find(n=>row.norm.includes(normalize(n)));
+      if(!who)return;
+      if(returnWords.test(row.text)){
+        add("info",`Revisar regreso de ${who}`,
+          "El texto marca un regreso o reaparición. Revisá si la ausencia previa quedó clara.",
+          row.ci,row.pi,"baja");
+      }else if(absentWords.test(row.text)){
+        add("info",`Revisar salida de ${who}`,
+          "El texto marca una partida o desaparición. Revisá la continuidad de su siguiente aparición.",
+          row.ci,row.pi,"baja");
+      }
+    });
 
-  // 5) Strong naming variants only when they are exact aliases in the text.
-  // Compare manual names with obvious shortened forms, but never invent a match.
-  const manual=charNames.filter(Boolean);
-  manual.forEach(name=>{
-    const parts=name.trim().split(/\s+/);
-    if(parts.length>=2){
+    // 5. Possible first-name shorthand, but only for multi-word manually registered names.
+    charNames.forEach(name=>{
+      const parts=name.trim().split(/\s+/);
+      if(parts.length<2)return;
       const short=parts[0];
-      const shortCount=chapters.reduce((n,c)=>n+c.paragraphs.filter(p=>{
-        return new RegExp("\\b"+searchEscReg(short)+"\\b","i").test(p) &&
-               !new RegExp("\\b"+searchEscReg(name)+"\\b","i").test(p);
-      }).length,0);
-      if(shortCount>=2){
-        const ci=chapters.findIndex(c=>c.paragraphs.some(p=>new RegExp("\\b"+searchEscReg(short)+"\\b","i").test(p)));
-        const pi=ci>=0?chapters[ci].paragraphs.findIndex(p=>new RegExp("\\b"+searchEscReg(short)+"\\b","i").test(p)):0;
+      let count=0,first=null;
+      const fullNorm=normalize(name),shortNorm=normalize(short);
+      rows.forEach(row=>{
+        if(row.norm.includes(shortNorm) && !row.norm.includes(fullNorm)){
+          count++;
+          if(!first)first=row;
+        }
+      });
+      if(count>=2){
         add("info",`Posible nombre abreviado: ${short}`,
           `La ficha contiene “${name}”, pero el texto también usa “${short}” por separado. Puede ser el mismo personaje.`,
-          Math.max(0,ci),Math.max(0,pi),"media");
+          first.ci,first.pi,"media");
       }
-    }
-  });
+    });
 
-  reviewState=findings.slice(0,80);
-  renderReview();
+    reviewState=findings.slice(0,80);
+    renderReview();
+  }catch(err){
+    console.error("Modo revisión:",err);
+    reviewState=[{
+      type:"warning",
+      title:"No se pudo completar el análisis",
+      detail:"La revisión encontró un error interno. Podés seguir usando la novela; no se modificó ningún texto. Recargá la página y volvé a intentarlo.",
+      ci:state.current||0,pi:0,confidence:"—"
+    }];
+    renderReview();
+  }finally{
+    if(button){button.disabled=false;button.textContent="🔎 Analizar novela";}
+  }
 }
 function jumpFromReview(ci,pi){
   $("reviewPanel")?.classList.remove("open");
