@@ -882,13 +882,7 @@ function toggleAppMenu(){document.body.classList.remove("chapters-open");$("appM
 function closeAppMenu(){$("appMenu").classList.remove("open");$("appMenuBackdrop").classList.remove("open")}
 function applyNightMode(on){
   document.body.classList.toggle("night",!!on);
-  localStorage.setItem("escritor_night",on?"1":"0");
-  try{
-    if(state){
-      state.night=!!on;
-      localStorage.setItem(KEY,JSON.stringify(state));
-    }
-  }catch(e){console.warn("No se pudo guardar el modo nocturno",e)}
+  try{localStorage.setItem(THEME_KEY,on?"1":"0")}catch(e){console.warn("No se pudo guardar el modo nocturno",e)}
 }
 function toggleNight(){applyNightMode(!document.body.classList.contains("night"))}
 function toggleFocus(){document.body.classList.toggle("focus-mode")}
@@ -1671,6 +1665,8 @@ let reviewState=[];
 
 /* V38 — navegación interna: recarga conserva la pantalla y Android/Back cierra el panel */
 const APP_PANEL_KEY="escritor_active_panel_v1";
+const THEME_KEY="escritor_night";
+const APP_PANELS=new Set(["map","timeline","review","backup"]);
 
 function currentAppPanel(){
   if($("mapPanel")?.classList.contains("open"))return "map";
@@ -1701,11 +1697,19 @@ function closeAnyAppPanel(){
 }
 function restoreAppPanel(){
   const p=localStorage.getItem(APP_PANEL_KEY);
-  if(!p)return;
-  if(p==="map")openMapPanel();
-  else if(p==="timeline")openTimelinePanel();
-  else if(p==="review")openReviewPanel();
-  else if(p==="backup")openBackupPanel();
+  if(!APP_PANELS.has(p)){
+    localStorage.removeItem(APP_PANEL_KEY);
+    return;
+  }
+  /* Restaurar no llama a open*Panel: esas funciones hacen history.pushState(). */
+  if(p==="map"){ensureMapState();$("mapPanel").classList.add("open");initBuenosAiresMap()}
+  else if(p==="timeline"){
+    ensureTimelineState();$("timelinePanel").classList.add("open");
+    if(!state.timeline.length)seedTimelineFromDetection(false);
+    populateTimelineChapterSelect();renderTimelineCanvas();setTimeout(centerTimeline,40);
+  }
+  else if(p==="review"){$("reviewPanel").classList.add("open");bindReviewButton();renderReview()}
+  else if(p==="backup"){document.body.classList.add("backup-open");renderBackupPanel()}
 }
 window.addEventListener("popstate",function(){
   /* El gesto/botón Atrás del teléfono no abandona GitHub Pages
@@ -2993,14 +2997,13 @@ class SimpleZip{
 function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return(~c)>>>0}
 
 try{
-  const savedNight=localStorage.getItem("escritor_night");
-  if(savedNight==="1" || state?.night===true)applyNightMode(true);
-  else applyNightMode(false);
+  const savedNight=localStorage.getItem(THEME_KEY);
+  /* Compatibilidad con versiones anteriores, sin escribir KEY al arrancar. */
+  document.body.classList.toggle("night",savedNight==="1" || (savedNight===null && state?.night===true));
 }catch(e){console.warn("No se pudo restaurar el modo nocturno",e)}
 load();
 updateAIStatus();
-setTimeout(()=>restoreAppPanel(),120);
-setTimeout(()=>restoreAppPanel(),500);
+restoreAppPanel();
 
 if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=12").catch(()=>{});
 </script>
