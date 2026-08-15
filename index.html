@@ -1049,7 +1049,7 @@ graphCanvasEl.addEventListener("wheel",graphWheel,{passive:false});
 
 
 
-const ANALYSIS_KEY="escritor_auto_analysis_v1";
+const ANALYSIS_KEY="escritor_auto_analysis_v2";
 let analysisState=JSON.parse(localStorage.getItem(ANALYSIS_KEY)||"null")||{
   entities:{characters:[],places:[],events:[],times:[]},relations:[],issues:[]
 };
@@ -1070,60 +1070,92 @@ function analyzeTextLocally(){
   const chars=[...(state.characters||[])];
   const places=[...(state.places||[])];
   const entities={characters:[],places:[],events:[],times:[]},relations=[],issues=[];
-  const knownCharNames=chars.map(x=>x.name).filter(Boolean);
-  const knownPlaceNames=places.map(x=>x.name).filter(Boolean);
+  const knownCharNames=chars.map(x=>String(x.name||"").trim()).filter(Boolean);
+  const knownPlaceNames=places.map(x=>String(x.name||"").trim()).filter(Boolean);
+
+  const stopWords=new Set((
+    "el la los las un una unos unas al del de y o e que se su sus mi mis tu tus yo me te le lo nos les "
+    +"esto eso esta este estos estas aquello aquí aqui ahi allí alli adentro afuera arriba abajo antes después despues "
+    +"entonces luego ahora siempre nunca hoy ayer mañana bueno buena buenas buenos gracias hola adiós adios jajaja jaja "
+    +"cállate callate ayúdame ayudame ayuda mira mirá dijo dice digo decir respondió respondio preguntó pregunto pregunta "
+    +"contestó contesto gritó grito susurró susurro pensó penso miró miro observó observo habló hablo "
+    +"había habia hay fue era estaba están estan estoy estás estas como cómo porque porqué cuando cuándo donde dónde "
+    +"qué cual cuál quien quién pero aunque mientras sin con para por desde hasta sobre entre hacia sí si no también tambien "
+    +"solo sólo apenas quizá quizas tal vez mismo misma otro otra otros otras cosa cosas todo toda todos todas nada algo "
+    +"alguien nadie gente persona personas hombre mujer niño niña señor señora señorita chico chica muchacho muchacha "
+    +"abuelo abuela padre madre papá papa mamá mama hijo hija hermano hermana primo prima tío tio tía tia sobrino sobrina "
+    +"amigo amiga novio novia marido esposa esposo bebé bebe joven viejo vieja capítulo capitulo parte escena página pagina "
+    +"texto párrafo parrafo puerta ventana casa habitación habitacion calle noche día dia tarde vez veces lugar momento "
+    +"tiempo camino lado frente detrás detras dentro encima arrodillado arrodillada sentado sentada parado parada "
+    +"mirando hablando corriendo rápido rapido despacio bien mal mucho poco más mas menos"
+  ).split(/\s+/).map(normalize).filter(Boolean));
+
+  function isStopName(name){
+    return name.split(/\s+/).some(w=>stopWords.has(normalize(w)));
+  }
+  function occurrences(name){
+    const needle=normalize(name);
+    return state.chapters.reduce((n,ch)=>{
+      const txt=normalize(textOf(ch.html));
+      return n+(needle?txt.split(needle).length-1:0);
+    },0);
+  }
+  function hasAttribution(text,name){
+    const n=searchEscReg(name);
+    return new RegExp(
+      "(?:\\b(?:dijo|dice|preguntó|pregunto|respondió|respondio|contestó|contesto|gritó|grito|susurró|susurro|pensó|penso|miró|miro|observó|observo|llamó|llamo|abrazó|abrazo|entró|entro|salió|salio|llegó|llego|vio|conoció|conocio)\\s+"+n+"\\b)|"+
+      "(?:\\b"+n+"\\s+(?:dijo|dice|preguntó|pregunto|respondió|respondio|contestó|contesto|gritó|grito|susurró|susurro|pensó|penso|miró|miro|observó|observo|llamó|llamo|abrazó|abrazo)\\b)","i"
+    ).test(text);
+  }
 
   state.chapters.forEach((c,ci)=>{
     const div=document.createElement("div");div.innerHTML=c.html;
-    [...div.querySelectorAll("p")].forEach((p,pi)=>{
+    const paragraphs=[...div.querySelectorAll("p")];
+
+    paragraphs.forEach((p,pi)=>{
       const t=p.innerText.trim();if(!t)return;
       const nt=normalize(t);
 
-      // Existing library entities are high-confidence.
       knownCharNames.forEach(name=>{
-        if(nt.includes(normalize(name))){
+        if(nt.includes(normalize(name)))
           addUnique(entities.characters,{name,source:`${c.name}, párrafo ${pi+1}`,confidence:"alta"},"name");
-        }
       });
       knownPlaceNames.forEach(name=>{
-        if(nt.includes(normalize(name))){
+        if(nt.includes(normalize(name)))
           addUnique(entities.places,{name,source:`${c.name}, párrafo ${pi+1}`,confidence:"alta"},"name");
+      });
+
+      const matches=t.match(/\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})?\b/g)||[];
+      matches.forEach(raw=>{
+        const clean=raw.trim().replace(/^[¿¡"'“”‘’(\[]+|[,:;.!?"'“”‘’)\]]+$/g,"");
+        if(!clean || isStopName(clean))return;
+        if(knownPlaceNames.some(x=>normalize(x)===normalize(clean)))return;
+        if(knownCharNames.some(x=>normalize(x)===normalize(clean)))return;
+
+        const count=occurrences(clean);
+        const contextual=hasAttribution(t,clean);
+        if(count>=2 || (contextual && count>=1)){
+          addUnique(entities.characters,{
+            name:clean,
+            source:`${c.name}, párrafo ${pi+1}`,
+            confidence:(contextual||count>=3)?"probable":"posible"
+          },"name");
         }
       });
 
-      // Detección conservadora: evitamos palabras de diálogo y solo
-      // proponemos nombres que se repiten o tienen formato de nombre completo.
-      const matches=t.match(/(?<!^)(?<![.!?]\s)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})?/g)||[];
-      matches.forEach(name=>{
-        const clean=name.trim().replace(/[,:;.!?]+$/,"");
-        const stop=/^(El|La|Los|Las|Un|Una|Capítulo|Después|Entonces|Pero|Porque|Cuando|Como|Mientras|Dijo|Dice|Mira|Qué|Esto|Eso|Bueno|Gracias|Hola|Jajaja|Cállate)$/i;
-        const fullName=/^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}$/;
-        const occurrences=state.chapters.reduce((n,ch)=>n+(normalize(textOf(ch.html)).split(normalize(clean)).length-1),0);
-        if(!stop.test(clean)&&(fullName.test(clean)||occurrences>=2)&&
-          !knownPlaceNames.some(x=>normalize(x)===normalize(clean))&&
-          !knownCharNames.some(x=>normalize(x)===normalize(clean))){
-          addUnique(entities.characters,{name:clean,source:`${c.name}, párrafo ${pi+1}`,confidence:"posible"},"name");
-        }
-      });
-
-      // Time/date clues.
       const timeRx=/\b(?:a\s+las?\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:de la mañana|de la tarde|de la noche|h)?\b/gi;
       [...t.matchAll(timeRx)].forEach(m=>entities.times.push({value:m[0],source:`${c.name}, párrafo ${pi+1}`}));
 
       const dateRx=/\b(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/gi;
       [...t.matchAll(dateRx)].forEach(m=>entities.times.push({value:m[0],source:`${c.name}, párrafo ${pi+1}`}));
 
-      // Simple event heuristic: sentences containing event verbs.
       if(/\b(llegó|llego|salió|salio|entró|entro|conoció|conocio|murió|murio|nació|nacio|escapó|escapo|besó|besa|descubrió|descubrio|encontró|encontro|decidió|decidio|volvió|volvio|viajó|viajo)\b/i.test(t)){
         entities.events.push({label:t.length>180?t.slice(0,180)+"…":t,source:`${c.name}, párrafo ${pi+1}`});
       }
     });
 
-    // Relationships based on co-occurrence in paragraphs.
-    const allNames=knownCharNames;
-    const ps=[...div.querySelectorAll("p")];
-    ps.forEach((p,pi)=>{
-      const found=allNames.filter(n=>normalize(p.innerText).includes(normalize(n)));
+    paragraphs.forEach((p,pi)=>{
+      const found=knownCharNames.filter(n=>normalize(p.innerText).includes(normalize(n)));
       for(let a=0;a<found.length;a++)for(let b=a+1;b<found.length;b++){
         const label=found[a]+" ↔ "+found[b];
         if(!relations.some(r=>r.label===label))relations.push({label,source:`${c.name}, párrafo ${pi+1}`});
@@ -1131,7 +1163,6 @@ function analyzeTextLocally(){
     });
   });
 
-  // Detect repeated possible ages for known character names.
   const ageMap={};
   state.chapters.forEach(c=>{
     const div=document.createElement("div");div.innerHTML=c.html;
@@ -1151,7 +1182,6 @@ function analyzeTextLocally(){
     if(unique.length>1)issues.push({type:"posible incongruencia",title:`Edad de ${name}`,detail:`Aparecen estas edades: ${unique.join(", ")}. Revisá si es intencional.`,refs:vals});
   });
 
-  // Keep unique and bounded data.
   entities.times=entities.times.slice(0,100);
   entities.events=entities.events.slice(0,120);
   const ignored=JSON.parse(localStorage.getItem("escritor_analysis_ignored")||"[]");
@@ -1204,7 +1234,8 @@ function renderCharacterProfiles(){
   const names=new Map();
   (state.characters||[]).forEach(x=>names.set(normalize(x.name||""),x.name));
   (analysisState?.entities?.characters||[]).forEach(x=>{
-    const k=normalize(x.name||"");if(k&&!names.has(k))names.set(k,x.name);
+    const k=normalize(x.name||"");
+    if(k&&!names.has(k)&&x.confidence!=="posible")names.set(k,x.name);
   });
   if(!names.size){box.innerHTML='<div class="muted">Todavía no hay personajes registrados o detectados.</div>';return}
   [...names.entries()].sort((a,b)=>a[1].localeCompare(b[1],"es")).forEach(([key,name])=>{
