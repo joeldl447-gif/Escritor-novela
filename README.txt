@@ -1,5 +1,4 @@
-V17 — NAVEGACIÓN DE IA
-- La pantalla de IA local ya tiene un botón ← para salir.
-- Cerrar la pantalla no detiene ni borra la IA: queda preparada en segundo plano.
-- La aplicación no debe quedar atrapada en la pantalla de configuración de IA.
-- Mantiene las funciones de V16 y la importación acumulativa de Word.
+V18 — interfaz reparada.
+Construida a partir de V16, sin el parche defectuoso de V17.
+Añade solamente un botón para salir de la pantalla de IA local.
+Mantiene Word acumulativo, grafo, nodos arrastrables, análisis, voz e IA local.

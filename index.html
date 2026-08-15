@@ -147,7 +147,7 @@ body.night #appMenu .menu-title{border-color:#333}
 .analysis-detail{margin-top:7px;padding:8px;border-radius:8px;background:#eee;font-size:13px;display:none}
 .analysis-detail.open{display:block}.night .analysis-detail{background:#303030}
 
-#closeLocalAI{min-width:44px!important;height:44px!important;font-size:24px!important}
+#closeLocalAI{min-width:40px!important;width:40px!important;height:40px!important;padding:0!important;font-size:24px!important}
 </style>
 </head>
 <body>
@@ -221,7 +221,7 @@ body.night #appMenu .menu-title{border-color:#333}
     </div>
   </div>
   <aside id="aiSettings">
-    <h3>⚙️ IA local gratuita</h3>
+    <h3>⚙️ IA local gratuita</h3 style="display:flex;align-items:center;gap:8px"><button id="closeLocalAI" type="button" aria-label="Volver" onclick="closeLocalAI()">←</button><span>
     <p class="ai-status">Esta versión no usa API de pago ni necesita clave. El modelo se descarga una vez y después se ejecuta en el navegador.</p>
     <button onclick="loadLocalAI()">🧠 Preparar IA local</button>
     <div id="localAIProgress" class="ai-status" style="margin-top:10px">IA local no cargada.</div>
@@ -263,7 +263,7 @@ body.night #appMenu .menu-title{border-color:#333}
 <main>
   <aside id="chapters">
     <div style="display:flex;align-items:center;gap:8px">
-      <h3 style="flex:1">CAPÍTULOS</h3>
+      <h3 style="flex:1">CAPÍTULOS</span></h3>
       <button onclick="newChapter()">＋</button>
       <button onclick="toggleChapters()">×</button>
     </div>
@@ -511,7 +511,18 @@ function localSearchAnswer(q){
   }
   return null;
 }
-function closeLocalAI(){\n  const panel=document.querySelector("#localAIPanel") || document.querySelector(".local-ai-panel");\n  if(panel) panel.style.display="none";\n}\nasync function loadLocalAI(){
+
+function closeLocalAI(){
+  const panel = document.querySelector("#localAIPanel") ||
+                document.querySelector("[data-local-ai]") ||
+                document.querySelector(".local-ai-panel");
+  if(panel){
+    panel.style.display="none";
+  }else if(typeof closeModal==="function"){
+    closeModal();
+  }
+}
+async function loadLocalAI(){
   if(localGenerator||localLoading)return;
   localLoading=true;
   $("localAIProgress").textContent="Conectando con el modelo gratuito…";
