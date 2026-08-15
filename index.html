@@ -314,6 +314,20 @@ body.night #appMenu .menu-title{border-color:#333}
 }
 
 #mapLocateBtn{position:absolute;right:12px;bottom:52px;z-index:1200;width:42px;height:42px;border-radius:50%;padding:0;font-size:20px;background:#fff;color:#222;box-shadow:0 2px 10px #0004}
+
+#mapPanel .map-head,#mapPanel .map-editor,#mapPanel .map-editor button,#mapPanel .map-editor input,#mapPanel .map-editor textarea,#mapPanel .map-editor select{
+  pointer-events:auto!important;
+}
+#mapPanel .map-editor{
+  z-index:2000!important;
+  touch-action:auto!important;
+}
+#mapPanel .map-head{
+  z-index:2000!important;
+  touch-action:manipulation;
+}
+#mapPanel .map-head button{touch-action:manipulation}
+#mapPanel .leaflet-container.map-route-drawing{cursor:crosshair!important}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -407,12 +421,13 @@ body.night #appMenu .menu-title{border-color:#333}
       <h2 style="flex:1">🗺️ Mapa de Buenos Aires</h2>
       <button type="button" id="mapAddPoint">📍 Punto</button>
       <button type="button" id="mapStartRoute">〰️ Ruta</button>
+      <button type="button" id="mapSelectStreet">🛣️ Calle</button>
       <button type="button" id="mapFinishRoute" hidden>✓ Terminar</button>
       <button type="button" id="mapCancelRoute" hidden>× Cancelar</button>
       <button type="button" id="mapBaseToggle">🛰️ Satélite</button>
       <button type="button" id="mapLocateBtn" title="Mi ubicación">◎</button>
     </div>
-    <div id="mapHint" class="map-hint">Tocá <b>📍 Punto</b> para agregar un lugar. Con <b>〰️ Ruta</b> podés dibujar recorridos sobre el mapa.</div>
+    <div id="mapHint" class="map-hint">Tocá <b>📍 Punto</b> para agregar un lugar. Con <b>〰️ Ruta</b> dibujás recorridos. Con <b>🛣️ Calle</b> seleccionás una calle real del mapa.</div>
     <div id="baMap"></div>
     <div id="mapEditor" class="map-editor" hidden>
       <div class="map-editor-head">
@@ -448,6 +463,22 @@ body.night #appMenu .menu-title{border-color:#333}
       <div class="map-editor-actions">
         <button type="button" id="mapRouteSave">Guardar</button>
         <button type="button" id="mapRouteDelete" class="danger">Eliminar</button>
+      </div>
+    </div>
+    <div id="streetEditor" class="map-editor" hidden>
+      <div class="map-editor-head">
+        <strong>🛣️ Calle marcada</strong>
+        <button type="button" id="streetEditorClose">×</button>
+      </div>
+      <label>Calle
+        <input id="mapStreetName" type="text" placeholder="Nombre de la calle">
+      </label>
+      <label>Nota
+        <textarea id="mapStreetText" rows="3" placeholder="Qué ocurre en esta calle…"></textarea>
+      </label>
+      <div class="map-editor-actions">
+        <button type="button" id="mapStreetSave">Guardar</button>
+        <button type="button" id="mapStreetDelete" class="danger">Eliminar</button>
       </div>
     </div>
   </div>
@@ -2024,6 +2055,7 @@ let baMap=null,mapSatellite=true,mapDrawingRoute=false,mapCurrentRoute=[],mapDra
 function ensureMapState(){
   if(!Array.isArray(state.mapPoints))state.mapPoints=[];
   if(!Array.isArray(state.mapRoutes))state.mapRoutes=[];
+  if(!Array.isArray(state.mapStreets))state.mapStreets=[];
 }
 function saveMapState(){localStorage.setItem(KEY,JSON.stringify(state))}
 function openMapPanel(){
@@ -2063,7 +2095,8 @@ function initBuenosAiresMap(){
     );
     window.baSatellite.addTo(baMap);
     baMap.on("click",e=>{
-      if(mapDrawingRoute)addRoutePoint(e.latlng);
+      if(mapDrawingRoute){ addRoutePoint(e.latlng); return; }
+      if(mapSelectingStreet){ selectStreetAt(e.latlng); }
     });
     setTimeout(()=>baMap.invalidateSize(true),100);
     setTimeout(()=>baMap.invalidateSize(true),500);
@@ -2097,11 +2130,18 @@ function renderMapLayers(){
     line.on("click",()=>openMapRouteEditor(r.id));
     line.addTo(window.baRouteLayer);
   });
-  if(mapDraftLine){
-    mapDraftLine.remove();mapDraftLine=null;
-  }
+  if(window.baStreetLayer)window.baStreetLayer.clearLayers();
+  else window.baStreetLayer=L.layerGroup().addTo(baMap);
+  state.mapStreets.forEach(s=>{
+    if(!Array.isArray(s.points)||s.points.length<2)return;
+    const line=L.polyline(s.points,{weight:8,opacity:.9,color:"#ffcc00"});
+    line.bindTooltip(s.name||"Calle marcada",{sticky:true});
+    line.on("click",ev=>{ L.DomEvent.stopPropagation(ev); openMapStreetEditor(s.id); });
+    line.addTo(window.baStreetLayer);
+  });
+  if(mapDraftLine){ mapDraftLine.remove();mapDraftLine=null; }
   if(mapCurrentRoute.length>1){
-    mapDraftLine=L.polyline(mapCurrentRoute,{weight:5,dashArray:"8 8",opacity:.8}).addTo(baMap);
+    mapDraftLine=L.polyline(mapCurrentRoute,{weight:5,dashArray:"8 8",opacity:.9,color:"#ffffff"}).addTo(baMap);
   }
 }
 function toggleMapBase(){
@@ -2121,6 +2161,84 @@ function addMapPointAt(latlng){
   const p={id:"mp_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),name:"Nuevo punto",text:"",lat:latlng.lat,lng:latlng.lng,ci:state.current||0};
   state.mapPoints.push(p);saveMapState();openMapPointEditor(p.id);
 }
+
+function haversineMeters(a,b){
+  const R=6371000, p1=a.lat*Math.PI/180, p2=b.lat*Math.PI/180;
+  const dp=(b.lat-a.lat)*Math.PI/180, dl=(b.lng-a.lng)*Math.PI/180;
+  const x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+async function selectStreetAt(latlng){
+  if(!mapSelectingStreet)return;
+  $("mapHint").innerHTML="⏳ Buscando la calle…";
+  try{
+    const q=`[out:json][timeout:10];way(around:25,${latlng.lat},${latlng.lng})["highway"];out geom;`;
+    const res=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:q});
+    if(!res.ok)throw new Error("Overpass "+res.status);
+    const data=await res.json();
+    const ways=(data.elements||[]).filter(w=>Array.isArray(w.geometry)&&w.geometry.length>1);
+    if(!ways.length){
+      $("mapHint").innerHTML="No encontré una calle ahí. Acercate un poco y probá de nuevo.";
+      return;
+    }
+    ways.sort((a,b)=>{
+      const da=Math.min(...a.geometry.map(g=>haversineMeters(latlng,{lat:g.lat,lng:g.lon})));
+      const db=Math.min(...b.geometry.map(g=>haversineMeters(latlng,{lat:g.lat,lng:g.lon})));
+      return da-db;
+    });
+    const w=ways[0];
+    const points=w.geometry.map(g=>[g.lat,g.lon]);
+    const name=w.tags?.name || w.tags?.ref || "Calle sin nombre";
+    const s={id:"ms_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),name,text:"",points,highway:w.tags?.highway||""};
+    state.mapStreets.push(s);
+    saveMapState();
+    mapSelectingStreet=false;
+    $("mapSelectStreet").textContent="🛣️ Calle";
+    $("baMap").classList.remove("map-route-drawing");
+    renderMapLayers();
+    openMapStreetEditor(s.id);
+    $("mapHint").innerHTML="Calle marcada. Podés editarla o seguir trabajando en el mapa.";
+  }catch(err){
+    console.error(err);
+    $("mapHint").innerHTML="No pude consultar las calles. Necesitás conexión a Internet.";
+  }
+}
+function startStreetMode(){
+  if(!baMap)return;
+  mapSelectingStreet=!mapSelectingStreet;
+  if(mapSelectingStreet){
+    mapDrawingRoute=false;
+    $("mapStartRoute").hidden=false;$("mapFinishRoute").hidden=true;$("mapCancelRoute").hidden=true;
+    $("mapSelectStreet").textContent="✕ Cancelar calle";
+    $("mapHint").innerHTML="Tocá directamente una calle. La voy a identificar y marcar sobre el mapa.";
+    $("baMap").classList.add("map-route-drawing");
+  }else{
+    $("mapSelectStreet").textContent="🛣️ Calle";
+    $("mapHint").innerHTML="Tocá 🛣️ Calle para marcar una calle.";
+    $("baMap").classList.remove("map-route-drawing");
+  }
+}
+function openMapStreetEditor(id){
+  const s=state.mapStreets.find(x=>x.id===id);if(!s)return;
+  mapEditingStreetId=id;
+  $("mapStreetName").value=s.name||"";
+  $("mapStreetText").value=s.text||"";
+  $("streetEditor").hidden=false;
+  $("mapEditor").hidden=true;$("routeEditor").hidden=true;
+}
+function saveMapStreet(){
+  const s=state.mapStreets.find(x=>x.id===mapEditingStreetId);if(!s)return;
+  const name=$("mapStreetName").value.trim();if(!name){$("mapStreetName").focus();return}
+  Object.assign(s,{name,text:$("mapStreetText").value.trim()});
+  saveMapState();closeMapEditors();renderMapLayers();
+}
+function deleteMapStreet(){
+  const s=state.mapStreets.find(x=>x.id===mapEditingStreetId);if(!s)return;
+  if(!confirm(`¿Eliminar "${s.name}" del mapa?`))return;
+  state.mapStreets=state.mapStreets.filter(x=>x.id!==mapEditingStreetId);
+  saveMapState();closeMapEditors();renderMapLayers();
+}
+
 function addPointMode(){
   if(!baMap)return;
   $("mapHint").innerHTML="Tocá el lugar exacto del mapa donde querés colocar el punto.";
@@ -2135,6 +2253,8 @@ function addPointMode(){
 }
 function startMapRoute(){
   if(!baMap)return;
+  mapSelectingStreet=false;
+  $("mapSelectStreet").textContent="🛣️ Calle";
   mapDrawingRoute=true;mapCurrentRoute=[];
   $("mapStartRoute").hidden=true;$("mapFinishRoute").hidden=false;$("mapCancelRoute").hidden=false;
   $("mapHint").innerHTML="Tocá varios puntos para trazar la ruta. Podés hacer curvas y recorridos arbitrarios.";
@@ -2156,7 +2276,7 @@ function finishMapRoute(){
   state.mapRoutes.push(r);saveMapState();mapCurrentRoute=[];renderMapLayers();openMapRouteEditor(r.id);
 }
 function cancelMapRoute(){
-  mapDrawingRoute=false;mapCurrentRoute=[];$("mapStartRoute").hidden=true;
+  mapDrawingRoute=false;mapSelectingStreet=false;mapCurrentRoute=[];$("mapStartRoute").hidden=true;
   $("mapStartRoute").hidden=false;$("mapFinishRoute").hidden=true;$("mapCancelRoute").hidden=true;
   $("baMap").classList.remove("map-route-drawing");renderMapLayers();
 }
@@ -2231,9 +2351,13 @@ function bindMapUI(){
   $("mapPointSave").addEventListener("click",saveMapPoint);
   $("mapPointDelete").addEventListener("click",deleteMapPoint);
   $("mapPointJump").addEventListener("click",jumpMapPoint);
-  $("mapRouteEditorClose").addEventListener?.("click",closeMapEditors);
+  $("routeEditorClose").addEventListener("click",closeMapEditors);
   $("mapRouteSave").addEventListener("click",saveMapRoute);
   $("mapRouteDelete").addEventListener("click",deleteMapRoute);
+  $("mapSelectStreet").addEventListener("click",startStreetMode);
+  $("streetEditorClose").addEventListener("click",closeMapEditors);
+  $("mapStreetSave").addEventListener("click",saveMapStreet);
+  $("mapStreetDelete").addEventListener("click",deleteMapStreet);
 }
 
 function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}

@@ -1,9 +1,8 @@
-V36 — MAPA ESTILO MAPS
-- Mapa ocupa toda la pantalla.
-- Se eliminó el CSS que deformaba las teselas de Leaflet.
-- Controles flotantes sobre el mapa.
-- Satélite/calles.
-- Zoom y desplazamiento normales de mapa.
-- Botón de ubicación del dispositivo.
-- Puntos y rutas siguen disponibles.
-- Requiere conexión para cargar las teselas.
+V37 — CALLES MARCADAS + BOTONES CORREGIDOS
+- Se agregó modo 🛣️ Calle.
+- Tocás una calle real del mapa y se consulta OpenStreetMap/Overpass para identificarla.
+- La geometría de la calle queda marcada en amarillo.
+- Se puede editar el nombre/nota y eliminar la marca.
+- Se corrigió el botón de cierre del editor de rutas (el ID estaba mal conectado).
+- Se reforzaron los eventos táctiles/pointer de los botones y editores.
+- Requiere Internet para consultar calles.
