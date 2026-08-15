@@ -1,7 +1,6 @@
-V30
-- Zoom móvil con pellizco de dos dedos.
-- Botones − y ＋ de zoom visibles.
-- Zoom con rueda en escritorio.
-- Detectar reconstruye los momentos automáticos y conserva los manuales.
-- Detectar muestra siempre un resultado.
-- El botón Detectar tiene onclick directo para compatibilidad móvil.
+V31
+- Zoom independiente para la zona de escritura: 60% a 150%.
+- Botones A−, porcentaje y A＋ en la barra del editor.
+- El zoom se guarda y se conserva al volver a abrir la novela.
+- En celular también funciona con pellizco de dos dedos sobre el texto.
+- El zoom afecta solamente la escritura, no el resto de la interfaz.

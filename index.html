@@ -22,7 +22,9 @@ main{display:flex;max-width:1100px;margin:auto;min-height:calc(100vh - 58px)}
 #editorWrap{flex:1;min-width:0;background:#fff}
 #toolbar{display:flex;gap:6px;flex-wrap:wrap;padding:10px;border-bottom:1px solid #ddd;position:sticky;top:58px;background:#fff;z-index:50}
 #toolbar button{font-size:13px}
-#editor{padding:28px clamp(18px,5vw,70px);min-height:calc(100vh - 120px);outline:none;font-family:Georgia,serif;font-size:20px;line-height:1.7}
+.editor-zoom-controls{display:flex;gap:4px;align-items:center;margin-left:2px}
+.editor-zoom-controls button{min-width:38px;padding:7px 8px}
+#editor{padding:28px clamp(18px,5vw,70px);min-height:calc(100vh - 120px);outline:none;font-family:Georgia,serif;font-size:20px;line-height:1.7;zoom:1;transform-origin:top center;touch-action:pan-y}
 #editor p{margin:0 0 14px}
 #editor p.selected{background:#fff8d7}
 #side{width:300px;border-left:1px solid #ddd;background:#fafafa;padding:16px}
@@ -484,6 +486,11 @@ body.night #appMenu .menu-title{border-color:#333}
       <button onclick="cmd('italic')"><i>I</i></button>
       <button onclick="cmd('underline')"><u>U</u></button>
       <button onclick="insertParagraph()">Nuevo párrafo</button>
+      <span class="editor-zoom-controls">
+        <button type="button" id="editorZoomOut" title="Alejar escritura">A−</button>
+        <button type="button" id="editorZoomReset" title="Restablecer zoom">100%</button>
+        <button type="button" id="editorZoomIn" title="Acercar escritura">A＋</button>
+      </span>
       <span id="stats"></span>
     </div>
     <div id="editor" contenteditable="true" spellcheck="true" autocapitalize="sentences"></div>
@@ -510,7 +517,10 @@ state.characters=state.characters||[];
 state.places=state.places||[];
 state.history=state.history||{};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+state.editorZoom=Number(state.editorZoom)||1;
+state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
 let selected=null;
+let editorPinch=null;
 
 const $=id=>document.getElementById(id);
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
@@ -564,8 +574,55 @@ function stats(){
   let all=state.chapters.map(c=>textOf(c.html)).join(" ").trim(),aw=all?all.split(/\s+/).length:0;
   $("stats").textContent=w+" palabras · novela: "+aw;
 }
+function applyEditorZoom(){
+  const z=state.editorZoom||1;
+  $("editor").style.zoom=String(z);
+  $("editorZoomReset").textContent=Math.round(z*100)+"%";
+}
+function setEditorZoom(z){
+  state.editorZoom=Math.max(.6,Math.min(1.5,Math.round(z*100)/100));
+  applyEditorZoom();
+  save();
+}
+function changeEditorZoom(delta){
+  setEditorZoom((state.editorZoom||1)+delta);
+}
+$("editorZoomOut").addEventListener("click",()=>changeEditorZoom(-.1));
+$("editorZoomIn").addEventListener("click",()=>changeEditorZoom(.1));
+$("editorZoomReset").addEventListener("click",()=>setEditorZoom(1));
+
 $("editor").addEventListener("input",()=>{bindParagraphs();save()});
+
 $("title").addEventListener("input",save);
+
+$("editor").addEventListener("touchstart",e=>{
+  if(e.touches.length===2){
+    editorPinch={
+      startDist:Math.hypot(
+        e.touches[0].clientX-e.touches[1].clientX,
+        e.touches[0].clientY-e.touches[1].clientY
+      ),
+      startZoom:state.editorZoom||1
+    };
+    e.preventDefault();
+  }
+},{passive:false});
+
+$("editor").addEventListener("touchmove",e=>{
+  if(!editorPinch||e.touches.length!==2)return;
+  const dist=Math.hypot(
+    e.touches[0].clientX-e.touches[1].clientX,
+    e.touches[0].clientY-e.touches[1].clientY
+  );
+  const factor=dist/Math.max(1,editorPinch.startDist);
+  setEditorZoom(editorPinch.startZoom*factor);
+  e.preventDefault();
+},{passive:false});
+
+$("editor").addEventListener("touchend",()=>{
+  editorPinch=null;
+});
+
 function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
 function insertParagraph(){document.execCommand("insertParagraph");save();bindParagraphs()}
 function newChapter(){save();state.chapters.push({name:"Capítulo "+(state.chapters.length+1),html:"<p></p>",notes:{}});state.current=state.chapters.length-1;selected=null;localStorage.setItem(KEY,JSON.stringify(state));load()}
