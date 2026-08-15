@@ -1,7 +1,9 @@
-V35 — MAPA CORREGIDO
-- Corrige el contenedor del mapa para ocupar toda la pantalla.
-- Evita que CSS de la aplicación deforme las teselas de Leaflet.
-- Fuerza las teselas a 256x256.
-- Corrige el tamaño del mapa después de abrirlo y después de cargar las capas.
-- Centra Buenos Aires a zoom 13.
-- Mantiene satélite, calles, puntos y rutas.
+V36 — MAPA ESTILO MAPS
+- Mapa ocupa toda la pantalla.
+- Se eliminó el CSS que deformaba las teselas de Leaflet.
+- Controles flotantes sobre el mapa.
+- Satélite/calles.
+- Zoom y desplazamiento normales de mapa.
+- Botón de ubicación del dispositivo.
+- Puntos y rutas siguen disponibles.
+- Requiere conexión para cargar las teselas.
