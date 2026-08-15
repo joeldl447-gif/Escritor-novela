@@ -1,8 +1,9 @@
-V19 — IA LOCAL SEGURA PARA TELÉFONOS
-- Se elimina el modelo Qwen2.5-0.5B que podía provocar cierres por consumo de memoria.
-- Se usa SmolLM2-135M-Instruct-ONNX, cuya variante q4f16 es mucho menor.
-- En Android/iPhone/iPad se bloquea la carga si navigator.deviceMemory es desconocido o menor a 6 GB.
-- En móvil solo intenta WebGPU después del filtro de memoria; no hace fallback a WASM pesado.
-- No muestra alertas bloqueantes cuando falla la carga.
-- La búsqueda local de la novela y la lectura por voz siguen funcionando aunque la IA generativa esté bloqueada.
-- Mantiene las demás funciones de V18.
+V20 — PROTECCIÓN DE LA NOVELA
+- Copia completa manual en JSON con capítulos, notas, personajes, lugares e historial.
+- Restauración de copias completas mediante archivo JSON.
+- Hasta 12 copias automáticas locales, con límite de una nueva copia por minuto salvo creación manual.
+- Historial por capítulo ampliado a 30 versiones.
+- Vista previa y restauración de versiones de capítulos.
+- Restaurar una versión conserva la versión actual en el historial.
+- Las copias automáticas no salen del dispositivo.
+- Mantiene la IA local segura de V19, voz, Word acumulativo, grafo y análisis.

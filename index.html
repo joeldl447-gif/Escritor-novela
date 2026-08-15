@@ -148,6 +148,14 @@ body.night #appMenu .menu-title{border-color:#333}
 .analysis-detail.open{display:block}.night .analysis-detail{background:#303030}
 
 #closeLocalAI{min-width:40px!important;width:40px!important;height:40px!important;padding:0!important;font-size:24px!important}
+
+#backupPanel .library-card{margin:12px 0}
+#backupPanel button{margin:4px 4px 4px 0}
+.backup-history-item{border-top:1px solid #ddd;padding:10px 0}
+.backup-history-item:first-child{border-top:0}
+.backup-history-meta{font-size:12px;color:#777;margin:3px 0 7px}
+.backup-history-actions{display:flex;gap:6px;flex-wrap:wrap}
+.night #backupPanel .backup-history-item{border-color:#444}
 </style>
 </head>
 <body>
@@ -169,11 +177,42 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="openSearch();closeAppMenu()">🔎 Buscar en la novela</button>
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
+  <button onclick="openBackupPanel();closeAppMenu()">🛡️ Historial y copias</button>
   <button onclick="openAI();closeAppMenu()">🤖 Asistente IA y voz</button>
   <button onclick="openGraph();closeAppMenu()">🕸️ Conexiones</button>
   <button onclick="openAnalysis();closeAppMenu()">🧠 Analizar novela</button>
 </nav>
 
+
+<section id="backupPanel" class="overlayPanel">
+  <div class="panelInner">
+    <div style="display:flex;align-items:center;gap:8px">
+      <button class="icon" onclick="closeBackupPanel()">←</button>
+      <h2 style="flex:1">Historial y copias de seguridad</h2>
+    </div>
+
+    <div class="library-card">
+      <h3>💾 Copia manual</h3>
+      <p class="muted">Guarda una copia completa de la novela, capítulos, notas, personajes, lugares y configuración del editor.</p>
+      <button onclick="exportFullBackup()">⬇️ Descargar copia completa</button>
+      <button onclick="document.getElementById('backupFileInput').click()">⬆️ Restaurar una copia</button>
+      <input id="backupFileInput" type="file" accept=".json,application/json" style="display:none" onchange="importFullBackup(this.files[0]);this.value=''">
+    </div>
+
+    <div class="library-card">
+      <h3>🛡️ Copias automáticas</h3>
+      <p class="muted">La aplicación guarda automáticamente versiones locales cuando hay cambios importantes. No se suben a Internet.</p>
+      <div id="autoBackupStatus" class="muted">Cargando…</div>
+      <button onclick="createAutoBackup(true)">💾 Crear copia ahora</button>
+    </div>
+
+    <div class="library-card">
+      <h3>🕘 Versiones recientes</h3>
+      <p class="muted">Podés recuperar el contenido de un capítulo sin afectar los demás.</p>
+      <div id="historyList"></div>
+    </div>
+  </div>
+</section>
 <section id="library" class="overlayPanel">
   <div class="panelInner">
     <div style="display:flex;align-items:center;gap:8px"><h2 style="flex:1">Biblioteca</h2><button onclick="closeLibrary()">Cerrar</button></div>
@@ -312,10 +351,15 @@ function save(){
   state.chapters[state.current].html=$("editor").innerHTML;
   let h=state.history[state.current]||(state.history[state.current]=[]);
   let snap=state.chapters[state.current].html;
-  if(!h.length||h[h.length-1]!==snap){h.push(snap);if(h.length>20)h.shift()}
+  if(!h.length||h[h.length-1]!==snap){
+    h.push(snap);
+    if(h.length>30)h.shift();
+  }
   localStorage.setItem(KEY,JSON.stringify(state));
+  createAutoBackup(false);
   renderChapters();stats();
 }
+
 function load(){
   $("title").value=state.title;
   $("editor").innerHTML=state.chapters[state.current].html;
@@ -1029,10 +1073,160 @@ function renderAnalysis(){
 }
 
 
-function exportBackup(){
-  save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);a.download=(state.title||"novela")+"_backup.json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
+function downloadJson(filename,obj){
+  const blob=new Blob([JSON.stringify(obj,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download=filename;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
+function collectFullBackup(){
+  save();
+  return {
+    format:"escritor-novela-backup",
+    version:20,
+    createdAt:new Date().toISOString(),
+    state:state,
+    analysis:localStorage.getItem("escritor_auto_analysis_v1"),
+    ignoredAnalysis:localStorage.getItem("escritor_analysis_ignored")
+  };
+}
+function exportFullBackup(){
+  const b=collectFullBackup();
+  const safe=(state.title||"novela").replace(/[\\/:*?"<>|]+/g,"_");
+  downloadJson(safe+"_copia_completa.json",b);
+}
+function exportBackup(){exportFullBackup()}
+
+async function importFullBackup(file){
+  if(!file)return;
+  try{
+    const text=await file.text();
+    const data=JSON.parse(text);
+    if(data?.format!=="escritor-novela-backup" || !data.state?.chapters)
+      throw new Error("El archivo no parece una copia de Escritor.");
+    if(!confirm("Esto reemplazará la novela que está abierta por la copia seleccionada.\\n\\n¿Querés continuar?"))return;
+    localStorage.setItem(KEY,JSON.stringify(data.state));
+    if(data.analysis!==undefined && data.analysis!==null)localStorage.setItem("escritor_auto_analysis_v1",data.analysis);
+    if(data.ignoredAnalysis!==undefined && data.ignoredAnalysis!==null)localStorage.setItem("escritor_analysis_ignored",data.ignoredAnalysis);
+    state=data.state;
+    state.history=state.history||{};
+    state.characters=state.characters||[];
+    state.places=state.places||[];
+    load();
+    alert("Copia restaurada correctamente.");
+    renderBackupPanel();
+  }catch(e){
+    alert("No se pudo restaurar la copia: "+(e.message||e));
+  }
+}
+
+const AUTO_BACKUP_KEY="escritor_auto_backups_v1";
+let lastAutoBackupSerialized="";
+let lastAutoBackupTime=0;
+function getAutoBackups(){
+  try{return JSON.parse(localStorage.getItem(AUTO_BACKUP_KEY)||"[]")}catch(e){return[]}
+}
+function createAutoBackup(force){
+  try{
+    const serialized=JSON.stringify({
+      title:state.title,
+      chapters:state.chapters,
+      current:state.current,
+      characters:state.characters||[],
+      places:state.places||[]
+    });
+    const now=Date.now();
+    // Avoid filling localStorage on every keystroke.
+    if(!force && serialized===lastAutoBackupSerialized)return;
+    if(!force && now-lastAutoBackupTime<60000)return;
+    const arr=getAutoBackups();
+    arr.push({time:new Date().toISOString(),data:JSON.parse(serialized)});
+    while(arr.length>12)arr.shift();
+    localStorage.setItem(AUTO_BACKUP_KEY,JSON.stringify(arr));
+    lastAutoBackupSerialized=serialized;
+    lastAutoBackupTime=now;
+    renderBackupPanel();
+  }catch(e){
+    // If storage is full, keep the editor working. Old automatic copies are optional.
+    console.warn("No se pudo crear copia automática",e);
+  }
+}
+function openBackupPanel(){
+  document.body.classList.add("backup-open");
+  renderBackupPanel();
+}
+function closeBackupPanel(){document.body.classList.remove("backup-open")}
+function formatBackupDate(iso){
+  try{return new Date(iso).toLocaleString("es-AR",{dateStyle:"short",timeStyle:"short"})}catch(e){return iso}
+}
+function renderBackupPanel(){
+  const list=$("historyList"),status=$("autoBackupStatus");
+  if(!list||!status)return;
+  const arr=getAutoBackups();
+  status.textContent=arr.length
+    ? arr.length+" copias automáticas guardadas en este dispositivo. La más reciente: "+formatBackupDate(arr[arr.length-1].time)+"."
+    : "Todavía no hay copias automáticas.";
+  list.innerHTML="";
+  if(arr.length){
+    const autoTitle=document.createElement("div");
+    autoTitle.className="backup-history-item";
+    autoTitle.innerHTML="<b>Copias automáticas</b>";
+    arr.slice().reverse().forEach((item,rev)=>{
+      const realIndex=arr.length-1-rev;
+      const b=document.createElement("div");
+      b.className="backup-history-item";
+      b.innerHTML=`<div class="backup-history-meta">${formatBackupDate(item.time)} · ${esc(item.data.title||"Novela")}</div><div class="backup-history-actions"><button onclick="restoreAutoBackup(${realIndex})">Restaurar</button></div>`;
+      autoTitle.appendChild(b);
+    });
+    list.appendChild(autoTitle);
+  }
+  const currentHist=[];
+  state.chapters.forEach((c,ci)=>{
+    const h=state.history?.[ci]||[];
+    h.forEach((snap,hi)=>currentHist.push({ci,hi,snap,name:c.name}));
+  });
+  if(!currentHist.length){
+    list.innerHTML="<div class='muted'>Todavía no hay versiones anteriores.</div>";
+  }else{
+    currentHist.slice(-40).reverse().forEach(v=>{
+      const d=document.createElement("div");d.className="backup-history-item";
+      const chars=v.snap.length;
+      d.innerHTML=`<b>${esc(v.name)}</b><div class="backup-history-meta">Versión local · ${chars.toLocaleString("es-AR")} caracteres</div><div class="backup-history-actions"><button onclick="restoreChapterHistory(${v.ci},${v.hi})">Restaurar esta versión</button><button onclick="previewChapterHistory(${v.ci},${v.hi})">Vista previa</button></div>`;
+      list.appendChild(d);
+    });
+  }
+}
+function restoreChapterHistory(ci,hi){
+  const h=state.history?.[ci]||[],snap=h[hi];
+  if(snap===undefined)return;
+  if(!confirm("¿Restaurar esta versión del capítulo?\\n\\nSe conservará la versión actual en el historial."))return;
+  save();
+  state.chapters[ci].html=snap;
+  state.current=ci;
+  localStorage.setItem(KEY,JSON.stringify(state));
+  load();
+  renderBackupPanel();
+}
+function previewChapterHistory(ci,hi){
+  const snap=state.history?.[ci]?.[hi];
+  if(snap===undefined)return;
+  const d=document.createElement("div");d.innerHTML=snap;
+  const txt=d.innerText||"";
+  const preview=txt.length>3000?txt.slice(0,3000)+"\\n\\n…":txt;
+  alert("Vista previa de "+state.chapters[ci].name+"\\n\\n"+preview);
+}
+function restoreAutoBackup(index){
+  const arr=getAutoBackups(),item=arr[index];
+  if(!item)return;
+  if(!confirm("¿Restaurar esta copia automática?\\n\\nSe reemplazará la novela abierta."))return;
+  save();
+  state=JSON.parse(JSON.stringify(item.data));
+  state.history=state.history||{};
+  localStorage.setItem(KEY,JSON.stringify(state));
+  load();
+  renderBackupPanel();
+}
+
 async function importDocx(file){
   if(!file)return;
   try{
