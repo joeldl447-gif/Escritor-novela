@@ -1,7 +1,9 @@
-V22 — DETECCIÓN CONSERVADORA DE PERSONAJES
-- Se descartan muchas palabras comunes, familiares y acciones como personajes.
-- Un nombre aislado ya no alcanza: requiere repetición o contexto narrativo fuerte.
-- Reconoce patrones como «Mabel dijo» y «Francisco miró».
-- Los personajes confirmados manualmente siguen teniendo prioridad.
-- Se usa una clave de análisis nueva para descartar resultados viejos de V21.
-- Las fichas excluyen candidatos débiles.
+V23 — FICHAS INTELIGENTES
+- Cada personaje muestra apariciones y capítulos.
+- Relaciones con otros personajes según coaparición en párrafos.
+- Lugares asociados según coaparición.
+- Acontecimientos relevantes donde aparece.
+- Fragmentos de contexto clicables que llevan al párrafo.
+- Navegación directa a personajes y lugares relacionados.
+- No requiere etiquetar manualmente cada escena.
+- Mantiene detección conservadora V22, búsqueda, copias/historial e IA local segura.

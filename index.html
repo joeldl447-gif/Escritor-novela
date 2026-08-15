@@ -176,6 +176,14 @@ body.night #appMenu .menu-title{border-color:#333}
 .character-profile-chapters{display:flex;gap:5px;flex-wrap:wrap}
 .character-profile-chapters button{font-size:12px;padding:5px 8px}
 .night .character-profile{border-color:#444}
+
+.character-profile details{margin-top:9px;border-top:1px solid #ddd;padding-top:8px}
+.character-profile summary{cursor:pointer;font-weight:700;padding:4px 0}
+.character-profile small{opacity:.7}
+.character-snippet,.character-event{padding:9px;margin-top:6px;border-radius:8px;background:#f2f2f2;cursor:pointer;line-height:1.4}
+.character-snippet:hover,.character-event:hover{filter:brightness(.96)}
+.night .character-profile details{border-color:#444}
+.night .character-snippet,.night .character-event{background:#292929}
 </style>
 </head>
 <body>
@@ -1229,6 +1237,70 @@ function toggleAnalysisDetail(id){const e=$(id);if(e)e.classList.toggle("open")}
 
 function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}
 function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
+
+function characterProfileData(name,key){
+  const appearances=[];
+  const chapterSet=new Set();
+  const co=new Map();
+  const places=new Map();
+  const events=[];
+  const snippets=[];
+
+  state.chapters.forEach((c,ci)=>{
+    searchTextOfChapter(c).forEach((p,pi)=>{
+      const np=normalize(p);
+      if(!np.includes(key))return;
+
+      appearances.push({ci,pi});
+      chapterSet.add(ci);
+
+      // Other known characters appearing in the same paragraph.
+      const knownNames=(state.characters||[]).map(x=>x.name).filter(Boolean);
+      knownNames.forEach(other=>{
+        const ok=normalize(other);
+        if(ok!==key && np.includes(ok))co.set(other,(co.get(other)||0)+1);
+      });
+
+      // Detected characters also contribute to relationships.
+      (analysisState?.entities?.characters||[]).forEach(x=>{
+        const other=String(x.name||"");
+        const ok=normalize(other);
+        if(other && ok!==key && np.includes(ok))co.set(other,(co.get(other)||0)+1);
+      });
+
+      // Known places appearing in the same paragraph.
+      (state.places||[]).forEach(place=>{
+        const pn=String(place.name||"");
+        if(pn && np.includes(normalize(pn)))places.set(pn,(places.get(pn)||0)+1);
+      });
+      (analysisState?.entities?.places||[]).forEach(place=>{
+        const pn=String(place.name||"");
+        if(pn && np.includes(normalize(pn)))places.set(pn,(places.get(pn)||0)+1);
+      });
+
+      // Keep a few useful excerpts instead of dumping the whole chapter.
+      if(snippets.length<4){
+        const at=np.indexOf(key);
+        const start=Math.max(0,at-80),end=Math.min(p.length,at+key.length+140);
+        snippets.push({ci,pi,text:(start?"…":"")+p.slice(start,end)+(end<p.length?"…":"")});
+      }
+
+      if(/\b(llegó|llego|salió|salio|entró|entro|conoció|conocio|murió|murio|nació|nacio|escapó|escapo|besó|besa|descubrió|descubrio|encontró|encontro|decidió|decidio|volvió|volvio|viajó|viajo)\b/i.test(p)){
+        events.push({ci,pi,text:p.length>170?p.slice(0,170)+"…":p});
+      }
+    });
+  });
+
+  return {
+    appearances,
+    chapters:[...chapterSet],
+    relations:[...co.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8),
+    places:[...places.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8),
+    events:events.slice(0,6),
+    snippets
+  };
+}
+
 function renderCharacterProfiles(){
   const box=$("characterProfiles");if(!box)return;box.innerHTML="";
   const names=new Map();
@@ -1237,29 +1309,91 @@ function renderCharacterProfiles(){
     const k=normalize(x.name||"");
     if(k&&!names.has(k)&&x.confidence!=="posible")names.set(k,x.name);
   });
-  if(!names.size){box.innerHTML='<div class="muted">Todavía no hay personajes registrados o detectados.</div>';return}
+  if(!names.size){
+    box.innerHTML='<div class="muted">Todavía no hay personajes registrados o detectados.</div>';
+    return;
+  }
+
   [...names.entries()].sort((a,b)=>a[1].localeCompare(b[1],"es")).forEach(([key,name])=>{
-    const appearances=[];
-    state.chapters.forEach((c,ci)=>{
-      searchTextOfChapter(c).forEach((p,pi)=>{
-        if(normalize(p).includes(key))appearances.push({ci,pi});
-      });
-    });
+    const data=characterProfileData(name,key);
     const known=(state.characters||[]).find(x=>normalize(x.name||"")===key);
     const d=document.createElement("div");d.className="character-profile";
-    d.innerHTML=`<h3>👤 ${esc(name)}</h3><div class="character-profile-meta">${appearances.length} aparición${appearances.length===1?"":"es"} · ${known?.desc?esc(known.desc):"Detectado automáticamente"}</div><div class="character-profile-chapters"></div>`;
-    const wrap=d.querySelector(".character-profile-chapters");
-    const byChapter=new Map();
-    appearances.forEach(a=>{if(!byChapter.has(a.ci))byChapter.set(a.ci,[]);byChapter.get(a.ci).push(a.pi)});
-    byChapter.forEach((pis,ci)=>{
-      const btn=document.createElement("button");
-      btn.textContent=state.chapters[ci].name+" ("+pis.length+")";
-      btn.onclick=()=>jumpSearchResult(ci,pis[0]);
-      wrap.appendChild(btn);
-    });
+
+    const relationsHtml=data.relations.length
+      ? data.relations.map(([n,count])=>`<button onclick="openCharacterFromProfile('${safeJs(n)}')">👤 ${esc(n)} <small>(${count})</small></button>`).join("")
+      : '<span class="muted">Todavía no detecté relaciones.</span>';
+
+    const placesHtml=data.places.length
+      ? data.places.map(([n,count])=>`<button onclick="openPlaceFromProfile('${safeJs(n)}')">📍 ${esc(n)} <small>(${count})</small></button>`).join("")
+      : '<span class="muted">Todavía no detecté lugares asociados.</span>';
+
+    const chaptersHtml=data.chapters.map(ci=>{
+      const first=data.appearances.find(a=>a.ci===ci);
+      return `<button onclick="jumpSearchResult(${ci},${first?first.pi:0})">${esc(state.chapters[ci].name)} (${data.appearances.filter(a=>a.ci===ci).length})</button>`;
+    }).join("");
+
+    const snippetsHtml=data.snippets.length
+      ? data.snippets.map(x=>`<div class="character-snippet" onclick="jumpSearchResult(${x.ci},${x.pi})">${esc(x.text)}</div>`).join("")
+      : '<span class="muted">Sin fragmentos.</span>';
+
+    const eventsHtml=data.events.length
+      ? data.events.map(x=>`<div class="character-event" onclick="jumpSearchResult(${x.ci},${x.pi})">🎬 ${esc(x.text)}</div>`).join("")
+      : '<span class="muted">No detecté acontecimientos relevantes todavía.</span>';
+
+    d.innerHTML=`
+      <h3>👤 ${esc(name)}</h3>
+      <div class="character-profile-meta">
+        ${data.appearances.length} aparición${data.appearances.length===1?"":"es"} · ${data.chapters.length} capítulo${data.chapters.length===1?"":"s"}
+        · ${known?.desc?esc(known.desc):"Detectado automáticamente"}
+      </div>
+
+      <details open>
+        <summary>📚 Apariciones</summary>
+        <div class="character-profile-chapters">${chaptersHtml||'<span class="muted">Sin apariciones.</span>'}</div>
+      </details>
+
+      <details>
+        <summary>🔗 Relaciones</summary>
+        <div class="character-profile-chapters">${relationsHtml}</div>
+      </details>
+
+      <details>
+        <summary>📍 Lugares asociados</summary>
+        <div class="character-profile-chapters">${placesHtml}</div>
+      </details>
+
+      <details>
+        <summary>🎬 Evolución / acontecimientos</summary>
+        ${eventsHtml}
+      </details>
+
+      <details>
+        <summary>📝 Fragmentos</summary>
+        ${snippetsHtml}
+      </details>`;
     box.appendChild(d);
   });
 }
+
+function openCharacterFromProfile(name){
+  const key=normalize(name);
+  const ci=state.chapters.findIndex(c=>normalize(textOf(c.html)).includes(key));
+  if(ci>=0){
+    const ps=searchTextOfChapter(state.chapters[ci]);
+    const pi=ps.findIndex(p=>normalize(p).includes(key));
+    jumpSearchResult(ci,Math.max(0,pi));
+  }
+}
+function openPlaceFromProfile(name){
+  const key=normalize(name);
+  const ci=state.chapters.findIndex(c=>normalize(textOf(c.html)).includes(key));
+  if(ci>=0){
+    const ps=searchTextOfChapter(state.chapters[ci]);
+    const pi=ps.findIndex(p=>normalize(p).includes(key));
+    jumpSearchResult(ci,Math.max(0,pi));
+  }
+}
+
 function renderAnalysis(){
   const r=$("analysisResults");if(!r)return;r.innerHTML="";
   const make=(title,items,fmt)=>{
