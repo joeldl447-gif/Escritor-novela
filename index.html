@@ -222,8 +222,8 @@ body.night #appMenu .menu-title{border-color:#333}
   </div>
   <aside id="aiSettings">
     <h3>⚙️ IA local gratuita</h3 style="display:flex;align-items:center;gap:8px"><button id="closeLocalAI" type="button" aria-label="Volver" onclick="closeLocalAI()">←</button><span>
-    <p class="ai-status">Esta versión no usa API de pago ni necesita clave. El modelo se descarga una vez y después se ejecuta en el navegador.</p>
-    <button onclick="loadLocalAI()">🧠 Preparar IA local</button>
+    <p class="ai-status">Esta versión no usa API de pago ni necesita clave. Usa una IA local ligera. En teléfonos con poca memoria se bloquea automáticamente para evitar cierres.</p>
+    <button onclick="loadLocalAI()">🧠 Preparar IA ligera</button>
     <div id="localAIProgress" class="ai-status" style="margin-top:10px">IA local no cargada.</div>
     <hr>
     <button onclick="readCurrentChapter()">🔊 Leer capítulo actual</button>
@@ -420,7 +420,7 @@ function addPlace(){let n=prompt("Nombre del lugar:");if(!n)return;state.places.
 function showAllNotes(){let a=[];state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)a.push(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}));alert(a.length?a.join("\\n\\n"):"No hay notas.")}
 
 
-const LOCAL_MODEL="onnx-community/Qwen2.5-0.5B-Instruct";
+const LOCAL_MODEL="onnx-community/SmolLM2-135M-Instruct-ONNX";
 let localGenerator=null, localLoading=false, lastAIResponse="", recognition=null;
 
 async function getTransformers(){
@@ -524,44 +524,79 @@ function closeLocalAI(){
 }
 async function loadLocalAI(){
   if(localGenerator||localLoading)return;
+
+  // Safety: do not allocate a neural model on phones/tablets with
+  // unknown or low reported RAM. The previous 0.5B model could crash
+  // the browser/system because model size is not the same as runtime RAM.
+  const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const ram=Number(navigator.deviceMemory||0);
+  const cores=Number(navigator.hardwareConcurrency||0);
+  if(isMobile && (!ram || ram<6)){
+    $("localAIProgress").textContent=
+      "IA generativa bloqueada en este teléfono para evitar cierres. "+
+      "Las búsquedas de la novela y la lectura por voz siguen disponibles.";
+    return;
+  }
+
   localLoading=true;
-  $("localAIProgress").textContent="Conectando con el modelo gratuito…";
+  $("localAIProgress").textContent=
+    "Preparando IA ligera… La primera descarga es de unos 120–180 MB.";
   try{
     const {pipeline,env}=await getTransformers();
-    env.useBrowserCache=true; env.allowRemoteModels=true;
+    env.useBrowserCache=true;
+    env.allowRemoteModels=true;
+
+    // On mobile, only WebGPU is attempted after the RAM gate.
+    // On desktop, WebGPU first and WASM as a fallback.
     const attempts=[];
     if(navigator.gpu)attempts.push({device:"webgpu",dtype:"q4f16"});
-    attempts.push({device:"wasm",dtype:"q4"});
-    if(navigator.gpu)attempts.push({device:"webgpu",dtype:"q4"});
+    if(!isMobile)attempts.push({device:"wasm",dtype:"q4"});
     let lastError=null;
+
     for(const opt of attempts){
       try{
-        $("localAIProgress").textContent="Preparando IA local ("+opt.device+")… La primera vez puede descargar unos 500 MB.";
+        $("localAIProgress").textContent=
+          "Preparando IA ligera ("+opt.device+")…";
         localGenerator=await pipeline("text-generation",LOCAL_MODEL,{
-          device:opt.device,dtype:opt.dtype,
+          device:opt.device,
+          dtype:opt.dtype,
           progress_callback:p=>{
-            if(p?.progress!=null)$("localAIProgress").textContent="Descargando IA: "+Math.round(p.progress)+"%";
-            else if(p?.status)$("localAIProgress").textContent="IA: "+p.status;
+            if(p?.progress!=null)
+              $("localAIProgress").textContent=
+                "Descargando IA: "+Math.round(p.progress)+"%";
+            else if(p?.status)
+              $("localAIProgress").textContent="IA: "+p.status;
           }
         });
         break;
-      }catch(err){lastError=err;localGenerator=null;}
+      }catch(err){
+        lastError=err;
+        localGenerator=null;
+      }
     }
-    if(!localGenerator)throw lastError||new Error("No se pudo inicializar el modelo");
-    $("localAIProgress").textContent="IA local lista. Quedará guardada en la caché del navegador.";
+
+    if(!localGenerator)
+      throw lastError||new Error("Este dispositivo no tiene un backend compatible");
+
+    $("localAIProgress").textContent=
+      "IA ligera lista. Quedará guardada en la caché del navegador.";
     updateAIStatus();
   }catch(e){
     localGenerator=null;
     const msg=String(e?.message||e).toLowerCase();
-    let explanation="No se pudo cargar la IA local.";
+    let explanation="No se pudo preparar la IA ligera.";
     if(msg.includes("network")||msg.includes("fetch")||msg.includes("failed to fetch"))
-      explanation="No se pudo descargar el modelo. Revisá la conexión y volvé a tocar «Preparar IA local».";
+      explanation="No se pudo descargar la IA. Revisá la conexión.";
     else if(msg.includes("memory")||msg.includes("allocation")||msg.includes("out of memory"))
-      explanation="El teléfono no tiene memoria suficiente para cargar el modelo. La voz y las búsquedas siguen funcionando.";
-    else explanation+=" "+(e?.message||"Error desconocido.");
+      explanation="El dispositivo no tiene memoria suficiente. La IA quedó desactivada para evitar un cierre.";
+    else
+      explanation+=" "+(e?.message||"Backend no compatible.");
     $("localAIProgress").textContent=explanation;
-    alert(explanation);
-  }finally{localLoading=false}
+    // Do not use alert here: a system/browser crash must never be followed
+    // by another blocking UI operation.
+  }finally{
+    localLoading=false;
+  }
 }
 async function sendAI(){
   const q=$("aiInput").value.trim();if(!q)return;
@@ -587,7 +622,7 @@ async function sendAI(){
   }
 
   if(!localGenerator){
-    addAIMessage("assistant","La IA local todavía no está preparada. Tocá ⚙️ y después «Preparar IA local». No necesitás clave ni pagar una API.");
+    addAIMessage("assistant","La IA local todavía no está preparada. Tocá ⚙️ y después «Preparar IA ligera». Si el teléfono no tiene memoria suficiente, la aplicación la bloquea para protegerlo.");
     return;
   }
 
