@@ -2,7 +2,7 @@
   "name": "Escritor — Novela",
   "short_name": "Escritor",
   "description": "Editor de novelas con línea temporal visual editable.",
-  "start_url": "./index.html?v=29",
+  "start_url": "./index.html?v=30",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

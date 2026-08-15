@@ -1,12 +1,7 @@
-V29 — LÍNEA TEMPORAL VISUAL
-- La línea temporal ahora es literalmente una línea horizontal.
-- Interfaz tipo grafo/nodos: espacio desplazable, zoom con rueda/pellizco y nodos arrastrables.
-- Arriba y abajo de la línea se alternan los momentos para facilitar la lectura.
-- + Momento: crea momentos manuales.
-- Tocar un nodo abre su editor.
-- Editar título, fecha/referencia, tipo, capítulo, párrafo y notas.
-- Eliminar momentos.
-- Ir al texto lleva al capítulo/párrafo asociado.
-- Detectar agrega nuevos acontecimientos automáticos sin borrar ni modificar los manuales.
-- Los momentos se guardan en localStorage y sobreviven a recargas.
-- Los momentos detectados de versiones anteriores se conservan solo si ya estaban en state.timeline; al abrir por primera vez V29 se siembran automáticamente desde la detección existente.
+V30
+- Zoom móvil con pellizco de dos dedos.
+- Botones − y ＋ de zoom visibles.
+- Zoom con rueda en escritorio.
+- Detectar reconstruye los momentos automáticos y conserva los manuales.
+- Detectar muestra siempre un resultado.
+- El botón Detectar tiene onclick directo para compatibilidad móvil.

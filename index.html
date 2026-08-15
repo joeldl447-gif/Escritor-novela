@@ -316,7 +316,9 @@ body.night #appMenu .menu-title{border-color:#333}
       <button type="button" class="icon" id="timelineBack">←</button>
       <h2 style="flex:1">🕰️ Línea temporal</h2>
       <button type="button" id="timelineAdd">＋ Momento</button>
-      <button type="button" id="timelineDetect">🧠 Detectar</button>
+      <button type="button" id="timelineDetect" onclick="detectTimelineMoments()">🧠 Detectar</button>
+      <button type="button" id="timelineZoomOut">−</button>
+      <button type="button" id="timelineZoomIn">＋</button>
       <button type="button" id="timelineCenter">Centrar</button>
     </div>
     <div class="timeline-help">
@@ -1537,6 +1539,8 @@ function renderReview(){
 let timelineView={x:0,y:0,scale:1};
 let timelineDrag=null;
 let timelinePan=null;
+let timelinePinch=null;
+let timelinePointers=new Map();
 let timelineEditingId=null;
 
 function ensureTimelineState(){
@@ -1618,9 +1622,21 @@ function timelineNodeDown(e,m){
 }
 function timelinePointerDown(e){
   if(e.target.closest(".timeline-node"))return;
-  timelinePan={pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,viewX:timelineView.x,viewY:timelineView.y};
-  $("timelineCanvas").setPointerCapture?.(e.pointerId);
-  $("timelineCanvas").classList.add("panning");
+  const c=$("timelineCanvas");
+  if(!timelinePan && !timelinePinch){
+    timelinePan={pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,viewX:timelineView.x,viewY:timelineView.y};
+    c.setPointerCapture?.(e.pointerId);
+    c.classList.add("panning");
+  }
+  timelinePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(timelinePointers.size===2){
+    const pts=[...timelinePointers.values()];
+    timelinePinch={
+      dist:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),
+      scale:timelineView.scale
+    };
+    timelinePan=null;
+  }
 }
 function timelinePointerMove(e){
   if(timelineDrag&&timelineDrag.pointerId===e.pointerId){
@@ -1630,9 +1646,27 @@ function timelinePointerMove(e){
     const dx=p.x-timelineDrag.startX;
     if(Math.abs(dx)>4)timelineDrag.moved=true;
     m.x=Math.max(140,Math.min(3000,timelineDrag.origX+dx));
-    const node=timelineDrag.el;
-    node.style.left=m.x+"px";
-    node.dataset.moved=timelineDrag.moved?"1":"";
+    timelineDrag.el.style.left=m.x+"px";
+    timelineDrag.el.dataset.moved=timelineDrag.moved?"1":"";
+    return;
+  }
+  if(!timelinePointers.has(e.pointerId))return;
+  timelinePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(timelinePointers.size===2){
+    const pts=[...timelinePointers.values()];
+    if(!timelinePinch)timelinePinch={dist:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),scale:timelineView.scale};
+    const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+    const factor=dist/Math.max(1,timelinePinch.dist);
+    const next=Math.max(.35,Math.min(2.8,timelinePinch.scale*factor));
+    const r=$("timelineCanvas").getBoundingClientRect();
+    const mx=(pts[0].x+pts[1].x)/2-r.left;
+    const my=(pts[0].y+pts[1].y)/2-r.top;
+    const old=timelineView.scale;
+    const wx=(mx-timelineView.x)/old,wy=(my-timelineView.y)/old;
+    timelineView.scale=next;
+    timelineView.x=mx-wx*next;
+    timelineView.y=my-wy*next;
+    $("timelineWorld").style.transform=`translate(${timelineView.x}px,${timelineView.y}px) scale(${timelineView.scale})`;
     return;
   }
   if(timelinePan&&timelinePan.pointerId===e.pointerId){
@@ -1645,18 +1679,26 @@ function timelinePointerUp(e){
   if(timelineDrag&&timelineDrag.pointerId===e.pointerId){
     saveTimeline();timelineDrag=null;return;
   }
+  timelinePointers.delete(e.pointerId);
+  if(timelinePointers.size<2)timelinePinch=null;
   if(timelinePan&&timelinePan.pointerId===e.pointerId){
-    timelinePan=null;$("timelineCanvas").classList.remove("panning");
+    timelinePan=null;
+    $("timelineCanvas").classList.remove("panning");
   }
 }
 function timelineWheel(e){
   e.preventDefault();
   const r=$("timelineCanvas").getBoundingClientRect();
   const mx=e.clientX-r.left,my=e.clientY-r.top;
-  const old=timelineView.scale,next=Math.max(.45,Math.min(2.2,old*(e.deltaY<0?1.1:.9)));
+  timelineZoomAt(e.deltaY<0?1.12:.89,mx,my);
+}
+function timelineZoomAt(factor,mx,my){
+  const old=timelineView.scale;
+  const next=Math.max(.35,Math.min(2.8,old*factor));
   const wx=(mx-timelineView.x)/old,wy=(my-timelineView.y)/old;
   timelineView.scale=next;
-  timelineView.x=mx-wx*next;timelineView.y=my-wy*next;
+  timelineView.x=mx-wx*next;
+  timelineView.y=my-wy*next;
   $("timelineWorld").style.transform=`translate(${timelineView.x}px,${timelineView.y}px) scale(${timelineView.scale})`;
 }
 function centerTimeline(){
@@ -1715,9 +1757,35 @@ function jumpTimelineMoment(){
   load();closeTimelinePanel();setTimeout(()=>jumpSearchResult(m.ci||0,m.pi||0),80);
 }
 function detectTimelineMoments(){
-  const added=seedTimelineFromDetection(true);
+  ensureTimelineState();
+  const manual=state.timeline.filter(m=>m.manual);
+  const before=state.timeline.length;
+  const detected=buildTimeline();
+  const auto=detected.map((x,i)=>({
+    id:timelineId(),
+    title:x.title||"Acontecimiento",
+    date:[x.date,x.time].filter(Boolean).join(" · "),
+    kind:x.kind||"event",
+    text:x.text||"",
+    ci:x.ci,pi:x.pi,manual:false,
+    sourceKey:`${x.ci}:${x.pi}:${normalize(x.title||"").slice(0,70)}`,
+    x:220+i*260
+  }));
+  // Keep one automatic moment per source paragraph/title.
+  const seen=new Set();
+  const uniqueAuto=auto.filter(m=>{
+    const k=`${m.ci}:${m.pi}:${normalize(m.title)}`;
+    if(seen.has(k))return false;
+    seen.add(k);return true;
+  });
+  state.timeline=[...manual,...uniqueAuto];
+  saveTimeline();
   renderTimelineCanvas();
-  alert(added?`Se agregaron ${added} momentos detectados. Los momentos manuales no se modificaron.`:"No encontré momentos nuevos.");
+  setTimeout(centerTimeline,20);
+  alert(`Análisis terminado.
+
+${uniqueAuto.length} momentos detectados.
+${manual.length} momentos manuales conservados.`);
 }
 function bindTimelineUI(){
   const c=$("timelineCanvas");
@@ -1730,8 +1798,10 @@ function bindTimelineUI(){
   c.addEventListener("wheel",timelineWheel,{passive:false});
   $("timelineBack").addEventListener("click",closeTimelinePanel);
   $("timelineAdd").addEventListener("click",()=>openTimelineEditor());
-  $("timelineDetect").addEventListener("click",detectTimelineMoments);
+  // Detectar también tiene onclick directo para mayor compatibilidad móvil.
   $("timelineCenter").addEventListener("click",centerTimeline);
+  $("timelineZoomIn").addEventListener("click",()=>timelineZoomAt(1.2,$("timelineCanvas").clientWidth/2,$("timelineCanvas").clientHeight/2));
+  $("timelineZoomOut").addEventListener("click",()=>timelineZoomAt(.8333,$("timelineCanvas").clientWidth/2,$("timelineCanvas").clientHeight/2));
   $("timelineEditorClose").addEventListener("click",closeTimelineEditor);
   $("timelineSave").addEventListener("click",saveTimelineMoment);
   $("timelineDelete").addEventListener("click",deleteTimelineMoment);
