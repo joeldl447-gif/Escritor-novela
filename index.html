@@ -740,25 +740,64 @@ const BACKUP_KEY="escritor_novela_backup_v1";
 const NIGHT_KEY="escritor_night";
 const DB_NAME="EscritorPWAPersistence";
 const DB_STORE="snapshots";
+const STATE_VERSION=2;
 
 function defaultState(){return {
  title:"Mi novela",current:0,
  chapters:[{name:"Capítulo 1",html:"<p>Empezá a escribir acá...</p>",notes:{}}],
- characters:[],places:[],history:{},night:false
+ characters:[],places:[],history:{},timeline:[],night:false,
+ _version:STATE_VERSION,_savedAt:0
 }}
+function normalizeState(parsed){
+  if(!parsed||!Array.isArray(parsed.chapters)||!parsed.chapters.length)return null;
+  parsed.characters=Array.isArray(parsed.characters)?parsed.characters:[];
+  parsed.places=Array.isArray(parsed.places)?parsed.places:[];
+  parsed.history=parsed.history&&typeof parsed.history==="object"?parsed.history:{};
+  parsed.timeline=Array.isArray(parsed.timeline)?parsed.timeline:[];
+  parsed.current=Math.max(0,Math.min(parsed.chapters.length-1,Number(parsed.current)||0));
+  parsed._version=Number(parsed._version)||1;
+  parsed._savedAt=Number(parsed._savedAt)||0;
+  parsed.night=!!parsed.night;
+  return parsed;
+}
+function parseCandidate(raw){
+  if(!raw)return null;
+  try{return normalizeState(JSON.parse(raw))}catch(e){return null}
+}
+function stateRichness(s){
+  if(!s)return -1;
+  const text=(s.chapters||[]).reduce((n,c)=>n+String(c.html||"").length,0);
+  const notes=(s.chapters||[]).reduce((n,c)=>n+Object.keys(c.notes||{}).length,0);
+  return (s.chapters||[]).length*1000000+text+notes*100;
+}
+function chooseBestStates(candidates){
+  const valid=candidates.filter(Boolean);
+  if(!valid.length)return defaultState();
+  valid.sort((a,b)=>{
+    const ta=Number(a._savedAt)||0,tb=Number(b._savedAt)||0;
+    if(ta!==tb)return tb-ta;
+    return stateRichness(b)-stateRichness(a);
+  });
+  // If a very old timestamp is missing (legacy data), prefer the richest copy.
+  const newestTime=Number(valid[0]._savedAt)||0;
+  const withTime=valid.filter(x=>(Number(x._savedAt)||0)>0);
+  if(!withTime.length)return valid.sort((a,b)=>stateRichness(b)-stateRichness(a))[0];
+  const newest=valid[0];
+  const richest=valid.slice().sort((a,b)=>stateRichness(b)-stateRichness(a))[0];
+  // Never discard a clearly richer chapter collection just because an older
+  // legacy/default snapshot exists in localStorage.
+  if(stateRichness(richest)>stateRichness(newest)*1.05)return richest;
+  return newest;
+}
 function readStoredState(){
-  let raw=null;
-  try{raw=localStorage.getItem(KEY)||localStorage.getItem(BACKUP_KEY)}catch(e){}
-  if(!raw)return defaultState();
-  try{
-    const parsed=JSON.parse(raw);
-    if(parsed&&Array.isArray(parsed.chapters)&&parsed.chapters.length)return parsed;
-  }catch(e){}
-  return defaultState();
+  const candidates=[];
+  try{candidates.push(parseCandidate(localStorage.getItem(KEY)));}catch(e){}
+  try{candidates.push(parseCandidate(localStorage.getItem(BACKUP_KEY)));}catch(e){}
+  return chooseBestStates(candidates);
 }
 let state=readStoredState();
-state.characters=state.characters||[];
-state.places=state.places||[];
+state.characters=Array.isArray(state.characters)?state.characters:[];
+state.places=Array.isArray(state.places)?state.places:[];
 state.history=state.history||{};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
 ensureMapState();
@@ -772,34 +811,73 @@ function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").repl
 function textOf(h){let d=document.createElement("div");d.innerHTML=h;return d.innerText.trim()}
 
 function persistState(){
+  state._version=STATE_VERSION;
+  state._savedAt=Date.now();
   const raw=JSON.stringify(state);
-  try{localStorage.setItem(KEY,raw);localStorage.setItem(BACKUP_KEY,raw)}catch(e){}
+  // localStorage is synchronous: this is the authoritative write used for
+  // reloads. IndexedDB is an additional recovery copy.
+  try{localStorage.setItem(KEY,raw);localStorage.setItem(BACKUP_KEY,raw)}catch(e){console.warn("No se pudo escribir localStorage",e)}
   persistStateIndexedDB(raw);
 }
 function openPersistenceDB(){
   return new Promise((resolve,reject)=>{
     if(!window.indexedDB)return reject(new Error("IndexedDB unavailable"));
-    const req=indexedDB.open(DB_NAME,1);
-    req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(DB_STORE))req.result.createObjectStore(DB_STORE)};
+    const req=indexedDB.open(DB_NAME,2);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(DB_STORE))db.createObjectStore(DB_STORE);
+    };
     req.onsuccess=()=>resolve(req.result);
     req.onerror=()=>reject(req.error);
   });
 }
 async function persistStateIndexedDB(raw){
-  try{const db=await openPersistenceDB();const tx=db.transaction(DB_STORE,"readwrite");tx.objectStore(DB_STORE).put(raw,"latest");tx.oncomplete=()=>db.close()}catch(e){}
-}
-async function recoverStateIndexedDB(){
   try{
     const db=await openPersistenceDB();
-    const raw=await new Promise((resolve,reject)=>{const tx=db.transaction(DB_STORE,"readonly");const req=tx.objectStore(DB_STORE).get("latest");req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error)});
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(DB_STORE,"readwrite");
+      tx.objectStore(DB_STORE).put(raw,"latest");
+      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
+    });
     db.close();
-    if(!raw)return false;
-    const parsed=JSON.parse(raw);
-    if(!parsed||!Array.isArray(parsed.chapters)||!parsed.chapters.length)return false;
-    state=parsed;state.characters=state.characters||[];state.places=state.places||[];state.history=state.history||{};state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+  }catch(e){console.warn("No se pudo guardar copia IndexedDB",e)}
+}
+async function getIndexedDBState(){
+  try{
+    const db=await openPersistenceDB();
+    const raw=await new Promise((resolve,reject)=>{
+      const tx=db.transaction(DB_STORE,"readonly");
+      const req=tx.objectStore(DB_STORE).get("latest");
+      req.onsuccess=()=>resolve(req.result||null);
+      req.onerror=()=>reject(req.error);
+    });
+    db.close();
+    return parseCandidate(raw);
+  }catch(e){return null}
+}
+async function recoverBestStoredState(){
+  const idb=await getIndexedDBState();
+  let ls1=null,ls2=null;
+  try{ls1=parseCandidate(localStorage.getItem(KEY))}catch(e){}
+  try{ls2=parseCandidate(localStorage.getItem(BACKUP_KEY))}catch(e){}
+  const best=chooseBestStates([ls1,ls2,idb]);
+  if(!best)return false;
+  const current=state;
+  // If the browser returned a default/legacy copy but IndexedDB contains the
+  // real manuscript, restore the richer/latest manuscript before rendering.
+  const changed=JSON.stringify(best)!==JSON.stringify(current);
+  state=best;
+  state.characters=Array.isArray(state.characters)?state.characters:[];
+  state.places=Array.isArray(state.places)?state.places:[];
+  state.history=state.history||{};
+  state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+  state.editorZoom=Number(state.editorZoom)||1;
+  state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
+  if(changed){
+    const raw=JSON.stringify(state);
     try{localStorage.setItem(KEY,raw);localStorage.setItem(BACKUP_KEY,raw)}catch(e){}
-    return true;
-  }catch(e){return false}
+  }
+  return changed;
 }
 function save(){
   state.title=$("title").value;
@@ -814,8 +892,8 @@ function save(){
   createAutoBackup(false);
   renderChapters();stats();
 }
-
 function load(){
+  state.current=Math.max(0,Math.min(state.chapters.length-1,Number(state.current)||0));
   $("title").value=state.title;
   $("editor").innerHTML=state.chapters[state.current].html;
   selected=null;$("noteText").value="";$("selectedLabel").textContent="Seleccioná un párrafo.";
@@ -3059,22 +3137,26 @@ class SimpleZip{
 }
 function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return(~c)>>>0}
 
-try{
-  const savedNight=localStorage.getItem(NIGHT_KEY);
-  if(savedNight!==null ? savedNight==="1" : !!state.night) document.body.classList.add("night");
-}catch(e){if(state.night)document.body.classList.add("night")}
-ensureAppBaseHistory();
-load();
-updateAIStatus();
-setTimeout(async()=>{
-  const rawOk=(()=>{try{const r=localStorage.getItem(KEY);const x=r&&JSON.parse(r);return !!(x&&Array.isArray(x.chapters)&&x.chapters.length)}catch(e){return false}})();
-  if(!rawOk && await recoverStateIndexedDB()) load();
+async function initializeApp(){
+  // Recover from every available store BEFORE the editor is rendered. This
+  // prevents the default one-chapter state from briefly becoming the visible
+  // or saved state and overwriting the manuscript.
+  await recoverBestStoredState();
+  try{
+    const savedNight=localStorage.getItem(NIGHT_KEY);
+    const night=savedNight!==null ? savedNight==="1" : !!state.night;
+    document.body.classList.toggle("night",night);
+    state.night=night;
+  }catch(e){document.body.classList.toggle("night",!!state.night)}
+  ensureAppBaseHistory();
+  load();
+  updateAIStatus();
   restoreAppPanel();
-},60);
-
+}
+initializeApp();
 window.addEventListener("pagehide",()=>{try{persistState()}catch(e){}});
 window.addEventListener("beforeunload",()=>{try{persistState()}catch(e){}});
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=12").catch(()=>{});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=43").catch(()=>{});
 </script>
 </body>
 </html>

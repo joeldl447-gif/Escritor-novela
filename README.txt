@@ -1,11 +1,10 @@
-V41 — REPARACIÓN CONSERVADORA
-- Basada en V38 restaurada.
-- Corrige el error de sintaxis de selectStreetAt (await dentro de función no async).
-- Mantiene la clave de novela escritor_novela_v1 para conservar datos existentes.
-- Menú lateral con desplazamiento vertical real; Analizar novela vuelve a ser accesible.
-- 📍 Punto usa un único modo de interacción del mapa.
-- 📝 Nota coloca una nota en cualquier coordenada y abre el editor.
-- 🔎 Buscar queda visible arriba del mapa sin desplazamiento horizontal.
-- Busca calles/direcciones/lugares con Nominatim/OpenStreetMap.
-- Los resultados permiten ir, marcar punto o marcar una calle cuando hay geometría lineal.
-- La carga de state es tolerante: no sobrescribe el almacenamiento si el JSON guardado tiene un problema.
+Escritor PWA V43 — corrección de persistencia
+
+Esta versión corrige la pérdida de capítulos al recargar.
+- Recupera el estado antes de renderizar el editor.
+- Compara localStorage, copia de respaldo e IndexedDB.
+- Prefiere la copia más reciente y evita que un estado inicial de un capítulo sobrescriba un manuscrito existente.
+- Guarda una marca de tiempo de cada estado.
+- Mantiene el modo oscuro y la navegación interna.
+
+Abrir index.html o instalar como PWA.
