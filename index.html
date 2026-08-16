@@ -735,40 +735,140 @@ body.night #appMenu .menu-title{border-color:#333}
 </main>
 
 <script>
-const KEY="escritor_novela_v1";
-let state=JSON.parse(localStorage.getItem(KEY)||"null")||{
+const KEY="escritor_v50_meta";
+const CHAPTER_PREFIX="escritor_v50_chapter_";
+const NIGHT_KEY="escritor_v50_night";
+const APP_VERSION="50";
+
+function defaultState(){return {
  title:"Mi novela",current:0,
  chapters:[{name:"Capítulo 1",html:"<p>Empezá a escribir acá...</p>",notes:{}}],
- characters:[],places:[],history:{}
-};
-state.characters=state.characters||[];
-state.places=state.places||[];
-state.history=state.history||{};
-state.timeline=Array.isArray(state.timeline)?state.timeline:[];
-ensureMapState();
-state.editorZoom=Number(state.editorZoom)||1;
-state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
-let selected=null;
-let editorPinch=null;
+ characters:[],places:[],history:{},night:false,timeline:[],mapPoints:[],mapStreets:[],mapRoutes:[],editorZoom:1
+}}
+function safeParse(raw){try{return JSON.parse(raw)}catch(e){return null}}
 
+/*
+  V49: almacenamiento deliberadamente simple y síncrono.
+  Cada capítulo se guarda en una entrada independiente de localStorage.
+  Así, editar un capítulo no obliga al navegador a reescribir toda la novela
+  ni permite que una copia vieja de IndexedDB reemplace el manuscrito actual.
+*/
+function metaFromState(){
+  return {version:APP_VERSION,title:state.title,current:state.current,characters:state.characters||[],places:state.places||[],timeline:state.timeline||[],mapPoints:state.mapPoints||[],mapStreets:state.mapStreets||[],mapRoutes:state.mapRoutes||[],editorZoom:state.editorZoom||1,night:state.night===true,savedAt:Date.now(),chapterCount:state.chapters.length};
+}
+function chapterKey(i){return CHAPTER_PREFIX+String(i)}
+function loadV50(){
+  const raw=localStorage.getItem(KEY);
+  const meta=safeParse(raw);
+  if(!meta || meta.version!==APP_VERSION || !Number.isFinite(meta.chapterCount) || meta.chapterCount<1) return null;
+  const chapters=[];
+  for(let i=0;i<meta.chapterCount;i++){
+    const c=safeParse(localStorage.getItem(chapterKey(i))||"");
+    if(!c || typeof c.html!=="string" || typeof c.name!=="string") return null;
+    chapters.push({name:c.name,html:c.html,notes:c.notes||{}});
+  }
+  return {...defaultState(),...meta,chapters,history:{}};
+}
+function stateHasUsefulWork(s){
+  if(!s||!Array.isArray(s.chapters)||!s.chapters.length)return false;
+  if(s.chapters.length>1)return true;
+  const c=s.chapters[0];
+  return !!(c && (String(c.html||"").replace(/<[^>]*>/g,"").trim()!=="Empezá a escribir acá..." || String(c.name||"")!=="Capítulo 1"));
+}
+function migrateV49Once(){
+  if(localStorage.getItem("escritor_v50_migrated")==="1")return;
+  try{
+    const raw=localStorage.getItem("escritor_v49_meta");
+    const meta=safeParse(raw);
+    if(meta && Number(meta.chapterCount)>0){
+      const chapters=[];
+      let ok=true;
+      for(let i=0;i<meta.chapterCount;i++){
+        const c=safeParse(localStorage.getItem("escritor_v49_chapter_"+i)||"");
+        if(!c || typeof c.html!=="string" || typeof c.name!=="string"){ok=false;break}
+        chapters.push({name:c.name,html:c.html,notes:c.notes||{}});
+      }
+      if(ok){
+        const migrated={...defaultState(),...meta,chapters};
+        stateForMigration=migrated;
+      }
+    }
+  }catch(e){}
+  try{localStorage.setItem("escritor_v50_migrated","1")}catch(e){}
+}
+let stateForMigration=null;
+
+function clearLegacyStorageOnce(){
+  if(localStorage.getItem("escritor_v49_initialized")==="1")return;
+  const oldKeys=["escritor_novela_v1","escritor_novela_backup_v1","escritor_night","escritor_novela_v2","escritor_auto_backups_v1"];
+  oldKeys.forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});
+  try{localStorage.setItem("escritor_v49_initialized","1")}catch(e){}
+}
+clearLegacyStorageOnce();
+migrateV49Once();
+let state=loadV50()||stateForMigration||defaultState();
+state.characters=state.characters||[];state.places=state.places||[];state.history={};state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+state.mapPoints=Array.isArray(state.mapPoints)?state.mapPoints:[];state.mapStreets=Array.isArray(state.mapStreets)?state.mapStreets:[];state.mapRoutes=Array.isArray(state.mapRoutes)?state.mapRoutes:[];
+state.editorZoom=Math.max(.6,Math.min(1.5,Number(state.editorZoom)||1));
+let selected=null;let editorPinch=null;
 const $=id=>document.getElementById(id);
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function textOf(h){let d=document.createElement("div");d.innerHTML=h;return d.innerText.trim()}
 
 function save(){
-  state.title=$("title").value;
-  state.chapters[state.current].html=$("editor").innerHTML;
-  let h=state.history[state.current]||(state.history[state.current]=[]);
-  let snap=state.chapters[state.current].html;
-  if(!h.length||h[h.length-1]!==snap){
-    h.push(snap);
-    if(h.length>30)h.shift();
+  // Synchronize the live editor DOM back into the in-memory state BEFORE
+  // persisting. The previous version called save() throughout the app but
+  // had no save() implementation, so typing only changed the DOM and the
+  // stored chapter remained unchanged.
+  try{
+    if($("editor") && state.chapters[state.current]){
+      state.chapters[state.current].html=$("editor").innerHTML;
+    }
+    if($("title")) state.title=$("title").value;
+    return persistState();
+  }catch(e){
+    console.error("Error sincronizando y guardando la novela",e);
+    return false;
   }
-  localStorage.setItem(KEY,JSON.stringify(state));
-  createAutoBackup(false);
-  renderChapters();stats();
 }
 
+function persistState(){
+  state.current=Math.max(0,Math.min(state.current,state.chapters.length-1));
+  state._savedAt=Date.now();
+  const meta=metaFromState();
+  try{
+    // Write chapters first. Metadata is written LAST, so a partially completed
+    // save cannot advertise chapters that do not exist.
+    for(let i=0;i<state.chapters.length;i++){
+      const c=state.chapters[i]||{name:"Capítulo "+(i+1),html:"<p></p>",notes:{}};
+      localStorage.setItem(chapterKey(i),JSON.stringify({name:String(c.name||("Capítulo "+(i+1))),html:String(c.html||""),notes:c.notes||{}}));
+    }
+    // Remove chapter entries left over after deleting chapters.
+    const oldCount=Number(safeParse(localStorage.getItem(KEY)||"{}")?.chapterCount)||state.chapters.length;
+    for(let i=state.chapters.length;i<oldCount;i++)localStorage.removeItem(chapterKey(i));
+    localStorage.setItem(KEY,JSON.stringify(meta));
+    localStorage.setItem(NIGHT_KEY,state.night===true?"1":"0");
+    return true;
+  }catch(e){
+    console.error("No se pudo guardar la novela",e);
+    try{alert("No se pudo guardar la novela. El navegador rechazó el almacenamiento. No cierres esta página todavía.")}catch(_e){}
+    return false;
+  }
+}
+
+function initializePersistentState(){
+  const saved=loadV50();
+  if(saved)state=saved;
+  state.characters=state.characters||[];state.places=state.places||[];state.history={};state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+  state.mapPoints=Array.isArray(state.mapPoints)?state.mapPoints:[];state.mapStreets=Array.isArray(state.mapStreets)?state.mapStreets:[];state.mapRoutes=Array.isArray(state.mapRoutes)?state.mapRoutes:[];
+  state.editorZoom=Math.max(.6,Math.min(1.5,Number(state.editorZoom)||1));
+  let night=state.night===true;
+  if(typeof state.night!=="boolean")night=localStorage.getItem(NIGHT_KEY)==="1";
+  state.night=night;
+  document.body.classList.toggle("night",night);
+  ensureAppBaseHistory();load();updateAIStatus();restoreAppPanel();
+  if(stateForMigration) { try { persistState(); } catch(e) {} }
+}
 function load(){
   $("title").value=state.title;
   $("editor").innerHTML=state.chapters[state.current].html;
@@ -864,7 +964,7 @@ $("editor").addEventListener("touchend",()=>{
 
 function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
 function insertParagraph(){document.execCommand("insertParagraph");save();bindParagraphs()}
-function newChapter(){save();state.chapters.push({name:"Capítulo "+(state.chapters.length+1),html:"<p></p>",notes:{}});state.current=state.chapters.length-1;selected=null;localStorage.setItem(KEY,JSON.stringify(state));load()}
+function newChapter(){save();state.chapters.push({name:"Capítulo "+(state.chapters.length+1),html:"<p></p>",notes:{}});state.current=state.chapters.length-1;selected=null;persistState();load()}
 function deleteChapter(i){
   const c=state.chapters[i];
   if(!confirm('¿Querés eliminar "'+c.name+'"?\\n\\nPrimera confirmación.'))return;
@@ -872,30 +972,27 @@ function deleteChapter(i){
   state.chapters.splice(i,1);
   if(!state.chapters.length)state.chapters.push({name:"Capítulo 1",html:"<p></p>",notes:{}});
   state.current=Math.min(state.current,state.chapters.length-1);
-  selected=null;localStorage.setItem(KEY,JSON.stringify(state));load();
+  selected=null;persistState();load();
 }
-function saveNote(){if(selected===null)return;state.chapters[state.current].notes=state.chapters[state.current].notes||{};state.chapters[state.current].notes[selected]=$("noteText").value.trim();localStorage.setItem(KEY,JSON.stringify(state));document.body.classList.remove("notes-open")}
-function clearNote(){if(selected===null)return;delete (state.chapters[state.current].notes||{})[selected];$("noteText").value="";localStorage.setItem(KEY,JSON.stringify(state))}
+function saveNote(){if(selected===null)return;state.chapters[state.current].notes=state.chapters[state.current].notes||{};state.chapters[state.current].notes[selected]=$("noteText").value.trim();persistState();document.body.classList.remove("notes-open")}
+function clearNote(){if(selected===null)return;delete (state.chapters[state.current].notes||{})[selected];$("noteText").value="";persistState()}
 function toggleNotes(){document.body.classList.toggle("notes-open")}
 function toggleChapters(){document.body.classList.toggle("chapters-open")}
 function toggleAppMenu(){document.body.classList.remove("chapters-open");$("appMenu").classList.toggle("open");$("appMenuBackdrop").classList.toggle("open")}
 function closeAppMenu(){$("appMenu").classList.remove("open");$("appMenuBackdrop").classList.remove("open")}
 function applyNightMode(on){
-  document.body.classList.toggle("night",!!on);
-  localStorage.setItem("escritor_night",on?"1":"0");
-  try{
-    if(state){
-      state.night=!!on;
-      localStorage.setItem(KEY,JSON.stringify(state));
-    }
-  }catch(e){console.warn("No se pudo guardar el modo nocturno",e)}
+  const enabled=!!on;
+  document.body.classList.toggle("night",enabled);
+  state.night=enabled;
+  try{localStorage.setItem(NIGHT_KEY,enabled?"1":"0");}catch(e){}
+  persistState();
 }
 function toggleNight(){applyNightMode(!document.body.classList.contains("night"))}
 function toggleFocus(){document.body.classList.toggle("focus-mode")}
-function openLibrary(){renderLibrary();$("library").classList.add("open")}
-function closeLibrary(){$("library").classList.remove("open")}
-function openSearch(){$("searchPanel").classList.add("open");setTimeout(()=>$("globalSearch").focus(),50)}
-function closeSearch(){$("searchPanel").classList.remove("open")}
+function openLibrary(){renderLibrary();$("library").classList.add("open");setAppPanel("library")}
+function closeLibrary(){$("library").classList.remove("open");clearAppPanel()}
+function openSearch(){$("searchPanel").classList.add("open");setAppPanel("search");setTimeout(()=>$("globalSearch").focus(),50)}
+function closeSearch(){$("searchPanel").classList.remove("open");clearAppPanel()}
 let searchMode="all";
 function setSearchMode(mode){
   searchMode=mode;
@@ -1037,8 +1134,8 @@ function renderEntities(){
   cl.innerHTML=state.characters.length?state.characters.map(x=>"<p><b>"+esc(x.name)+"</b><br><span class='muted'>"+esc(x.desc||"")+"</span></p>").join(""):"<p class='muted'>Sin personajes.</p>";
   pl.innerHTML=state.places.length?state.places.map(x=>"<p><b>"+esc(x.name)+"</b><br><span class='muted'>"+esc(x.desc||"")+"</span></p>").join(""):"<p class='muted'>Sin lugares.</p>";
 }
-function addCharacter(){let n=prompt("Nombre del personaje:");if(!n)return;state.characters.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
-function addPlace(){let n=prompt("Nombre del lugar:");if(!n)return;state.places.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
+function addCharacter(){let n=prompt("Nombre del personaje:");if(!n)return;state.characters.push({name:n,desc:prompt("Descripción breve:")||""});persistState();renderLibrary()}
+function addPlace(){let n=prompt("Nombre del lugar:");if(!n)return;state.places.push({name:n,desc:prompt("Descripción breve:")||""});persistState();renderLibrary()}
 function showAllNotes(){let a=[];state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)a.push(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}));alert(a.length?a.join("\\n\\n"):"No hay notas.")}
 
 
@@ -1652,7 +1749,7 @@ function safeJs(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
 function confirmAnalysisName(name){
   if(!(state.characters||[]).some(x=>normalize(x.name||"")===normalize(name))){
     state.characters.push({name,desc:"Detectado automáticamente en la novela"});
-    localStorage.setItem(KEY,JSON.stringify(state));
+    persistState();
   }
   analyzeTextLocally();renderAnalysis();load();
 }
@@ -1669,27 +1766,41 @@ let timelineFilter="all";
 
 let reviewState=[];
 
-/* V38 — navegación interna: recarga conserva la pantalla y Android/Back cierra el panel */
-const APP_PANEL_KEY="escritor_active_panel_v1";
+/* Navegación interna persistente.
+   - La pantalla abierta sobrevive a una recarga.
+   - Android/Back cierra primero la pantalla interna y no abandona la PWA.
+   - localStorage se usa para la pantalla porque sessionStorage se pierde en
+     algunos escenarios de PWA/WebView y no era fiable al recargar. */
+const APP_PANEL_KEY="escritor_active_panel";
+const APP_BASE_STATE="escritorBase";
 
 function currentAppPanel(){
   if($("mapPanel")?.classList.contains("open"))return "map";
   if($("timelinePanel")?.classList.contains("open"))return "timeline";
   if($("reviewPanel")?.classList.contains("open"))return "review";
+  if($("library")?.classList.contains("open"))return "library";
+  if($("searchPanel")?.classList.contains("open"))return "search";
+  if($("characterPanel")?.classList.contains("open"))return "characters";
   if(document.body.classList.contains("backup-open"))return "backup";
   return null;
 }
+function ensureAppBaseHistory(){
+  const s=history.state;
+  if(!s || (!s[APP_BASE_STATE] && !s.escritorPanel)){
+    history.replaceState({[APP_BASE_STATE]:true},"",location.pathname+location.search);
+  }
+}
 function setAppPanel(panel){
-  localStorage.setItem(APP_PANEL_KEY,panel);
+  try{localStorage.setItem(APP_PANEL_KEY,panel);}catch(e){}
   const current=history.state?.escritorPanel;
   if(current!==panel){
-    history.pushState({escritorPanel:panel},"","#"+panel);
+    history.pushState({escritorPanel:panel},"",location.pathname+location.search+"#"+panel);
   }
 }
 function clearAppPanel(){
-  localStorage.removeItem(APP_PANEL_KEY);
+  try{localStorage.removeItem(APP_PANEL_KEY);}catch(e){}
   if(history.state?.escritorPanel){
-    history.replaceState({escritorPanel:null},"",location.pathname+location.search);
+    history.replaceState({[APP_BASE_STATE]:true},"",location.pathname+location.search);
   }
 }
 function closeAnyAppPanel(){
@@ -1698,26 +1809,35 @@ function closeAnyAppPanel(){
   else if(p==="timeline")closeTimelinePanel();
   else if(p==="review")closeReviewPanel();
   else if(p==="backup")closeBackupPanel();
+  else if(p==="library")closeLibrary();
+  else if(p==="search")closeSearch();
+  else if(p==="characters")closeCharacterProfiles();
 }
 function restoreAppPanel(){
-  const p=localStorage.getItem(APP_PANEL_KEY);
+  let p=null;
+  try{p=localStorage.getItem(APP_PANEL_KEY);}catch(e){}
   if(!p)return;
   if(p==="map")openMapPanel();
   else if(p==="timeline")openTimelinePanel();
   else if(p==="review")openReviewPanel();
   else if(p==="backup")openBackupPanel();
+  else if(p==="library")openLibrary();
+  else if(p==="search")openSearch();
+  else if(p==="characters")openCharacterProfiles();
+  else {try{localStorage.removeItem(APP_PANEL_KEY);}catch(e){}}
 }
 window.addEventListener("popstate",function(){
-  /* El gesto/botón Atrás del teléfono no abandona GitHub Pages
-     mientras haya un panel interno abierto. */
   const p=currentAppPanel();
-  if(p){
-    if(p==="map"){$("mapPanel").classList.remove("open");closeMapEditors()}
-    if(p==="timeline"){$("timelinePanel").classList.remove("open");closeTimelineEditor()}
-    if(p==="review")$("reviewPanel").classList.remove("open");
-    if(p==="backup")document.body.classList.remove("backup-open");
-    localStorage.removeItem(APP_PANEL_KEY);
-  }
+  if(!p)return;
+  if(p==="map"){$("mapPanel").classList.remove("open");closeMapEditors()}
+  if(p==="timeline"){$("timelinePanel").classList.remove("open");closeTimelineEditor()}
+  if(p==="review")$("reviewPanel").classList.remove("open");
+  if(p==="backup")document.body.classList.remove("backup-open");
+  if(p==="library")$("library").classList.remove("open");
+  if(p==="search")$("searchPanel").classList.remove("open");
+  if(p==="characters")$("characterPanel").classList.remove("open");
+  try{localStorage.removeItem(APP_PANEL_KEY);}catch(e){}
+  ensureAppBaseHistory();
 });
 
 function openReviewPanel(){
@@ -1912,7 +2032,7 @@ function ensureTimelineState(){
   if(!Array.isArray(state.timeline))state.timeline=[];
 }
 function timelineId(){return "tm_"+Date.now()+"_"+Math.random().toString(36).slice(2,8)}
-function saveTimeline(){localStorage.setItem(KEY,JSON.stringify(state))}
+function saveTimeline(){persistState()}
 function openTimelinePanel(){
   ensureTimelineState();
   $("timelinePanel").classList.add("open");
@@ -2186,7 +2306,7 @@ function ensureMapState(){
   if(!Array.isArray(state.mapRoutes))state.mapRoutes=[];
   if(!Array.isArray(state.mapStreets))state.mapStreets=[];
 }
-function saveMapState(){localStorage.setItem(KEY,JSON.stringify(state))}
+function saveMapState(){persistState()}
 function openMapPanel(){
   ensureMapState();
   $("mapPanel").classList.add("open");
@@ -2563,8 +2683,8 @@ function bindMapUI(){
   $("mapStreetDelete").addEventListener("click",deleteMapStreet);
 }
 
-function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}
-function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
+function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open");setAppPanel("characters")}
+function closeCharacterProfiles(){$("characterPanel").classList.remove("open");clearAppPanel()}
 
 function characterProfileData(name,key){
   const appearances=[];
@@ -2772,11 +2892,11 @@ async function importFullBackup(file){
     if(data?.format!=="escritor-novela-backup" || !data.state?.chapters)
       throw new Error("El archivo no parece una copia de Escritor.");
     if(!confirm("Esto reemplazará la novela que está abierta por la copia seleccionada.\\n\\n¿Querés continuar?"))return;
-    localStorage.setItem(KEY,JSON.stringify(data.state));
+    persistState();
     if(data.analysis!==undefined && data.analysis!==null)localStorage.setItem("escritor_auto_analysis_v1",data.analysis);
     if(data.ignoredAnalysis!==undefined && data.ignoredAnalysis!==null)localStorage.setItem("escritor_analysis_ignored",data.ignoredAnalysis);
     state=data.state;
-    state.history=state.history||{};
+    state.history={};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
 ensureMapState();
     state.characters=state.characters||[];
@@ -2793,32 +2913,14 @@ const AUTO_BACKUP_KEY="escritor_auto_backups_v1";
 let lastAutoBackupSerialized="";
 let lastAutoBackupTime=0;
 function getAutoBackups(){
-  try{return JSON.parse(localStorage.getItem(AUTO_BACKUP_KEY)||"[]")}catch(e){return[]}
+  // Automatic full-manuscript copies are now kept by the primary IndexedDB
+  // snapshot. Do not duplicate them in localStorage.
+  return [];
 }
 function createAutoBackup(force){
-  try{
-    const serialized=JSON.stringify({
-      title:state.title,
-      chapters:state.chapters,
-      current:state.current,
-      characters:state.characters||[],
-      places:state.places||[]
-    });
-    const now=Date.now();
-    // Avoid filling localStorage on every keystroke.
-    if(!force && serialized===lastAutoBackupSerialized)return;
-    if(!force && now-lastAutoBackupTime<60000)return;
-    const arr=getAutoBackups();
-    arr.push({time:new Date().toISOString(),data:JSON.parse(serialized)});
-    while(arr.length>12)arr.shift();
-    localStorage.setItem(AUTO_BACKUP_KEY,JSON.stringify(arr));
-    lastAutoBackupSerialized=serialized;
-    lastAutoBackupTime=now;
-    renderBackupPanel();
-  }catch(e){
-    // If storage is full, keep the editor working. Old automatic copies are optional.
-    console.warn("No se pudo crear copia automática",e);
-  }
+  // persistState() already writes the complete manuscript to IndexedDB.
+  // Kept as a compatibility function for existing UI calls.
+  return;
 }
 function openBackupPanel(){
   document.body.classList.add("backup-open");
@@ -2876,7 +2978,7 @@ function restoreChapterHistory(ci,hi){
   save();
   state.chapters[ci].html=snap;
   state.current=ci;
-  localStorage.setItem(KEY,JSON.stringify(state));
+  persistState();
   load();
   renderBackupPanel();
 }
@@ -2897,7 +2999,7 @@ function restoreAutoBackup(index){
   state.history=state.history||{};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
 ensureMapState();
-  localStorage.setItem(KEY,JSON.stringify(state));
+  persistState();
   load();
   renderBackupPanel();
 }
@@ -2954,7 +3056,7 @@ async function importDocx(file){
 
     state.current=hadOnlyEmptyStarter?0:state.chapters.length-imported.length;
     state.history={};
-    localStorage.setItem(KEY,JSON.stringify(state));
+    persistState();
     load();
 
     alert(
@@ -2992,17 +3094,16 @@ class SimpleZip{
 }
 function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return(~c)>>>0}
 
-try{
-  const savedNight=localStorage.getItem("escritor_night");
-  if(savedNight==="1" || state?.night===true)applyNightMode(true);
-  else applyNightMode(false);
-}catch(e){console.warn("No se pudo restaurar el modo nocturno",e)}
-load();
-updateAIStatus();
-setTimeout(()=>restoreAppPanel(),120);
-setTimeout(()=>restoreAppPanel(),500);
+// IMPORTANT: do not render the editor from the starter state before the
+// persistent stores have been checked. That race was allowing a reload to
+// display/retain the initial chapter instead of the real manuscript.
+initializePersistentState();
 
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=12").catch(()=>{});
+// Último salvaguardado: si el navegador cierra la página mientras se estaba
+// editando, persistimos una vez más. El guardado normal ya ocurre en cada cambio.
+window.addEventListener("pagehide",()=>{try{save()}catch(e){}});
+window.addEventListener("beforeunload",()=>{try{save()}catch(e){}});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=50").catch(()=>{});
 </script>
 </body>
 </html>
