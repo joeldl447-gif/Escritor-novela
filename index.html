@@ -405,11 +405,49 @@ body.night #appMenu .menu-title{border-color:#333}
   <button onclick="toggleFocus();closeAppMenu()">⛶ Modo concentración</button>
   <button onclick="exportBackup();closeAppMenu()">💾 Copia de seguridad</button>
   <button onclick="openBackupPanel();closeAppMenu()">🛡️ Historial y copias</button>
+  <button onclick="openTransferPanel();closeAppMenu()">⇄ Transferir entre dispositivos</button>
   <button onclick="openAI();closeAppMenu()">🤖 Asistente IA y voz</button>
   <button onclick="openGraph();closeAppMenu()">🕸️ Conexiones</button>
   <button onclick="openAnalysis();closeAppMenu()">🧠 Analizar novela</button>
 </nav>
 
+
+
+<section id="transferPanel" class="overlayPanel">
+  <div class="panelInner">
+    <div style="display:flex;align-items:center;gap:8px">
+      <button class="icon" onclick="closeTransferPanel()">←</button>
+      <h2 style="flex:1">Transferir entre dispositivos</h2>
+    </div>
+
+    <div class="library-card">
+      <h3>⇄ Una copia para el celular y la PC</h3>
+      <p class="muted">
+        La aplicación puede empaquetar sus datos en un único archivo.
+        Descargalo en un dispositivo y después cargalo en Escritor desde el otro.
+        No requiere OneDrive, Microsoft ni ningún servicio externo.
+      </p>
+      <button onclick="exportDeviceTransfer()">⬇️ Crear archivo de transferencia</button>
+      <button onclick="document.getElementById('deviceTransferInput').click()">⬆️ Cargar archivo de transferencia</button>
+      <input id="deviceTransferInput" type="file" accept=".escritor,.json,application/json" hidden onchange="importDeviceTransfer(this.files[0]);this.value=''">
+      <div id="transferStatus" class="muted" style="margin-top:10px"></div>
+    </div>
+
+    <div class="library-card">
+      <h3>Cómo usarlo</h3>
+      <ol>
+        <li>En el celular, tocá <b>Crear archivo de transferencia</b>.</li>
+        <li>Pasá ese archivo a la PC por el medio que prefieras.</li>
+        <li>Abrí Escritor en la PC y tocá <b>Cargar archivo de transferencia</b>.</li>
+        <li>Para volver al celular, hacé lo mismo en sentido inverso.</li>
+      </ol>
+      <p class="muted">
+        La copia incluye los datos persistentes de Escritor, incluido el tema oscuro.
+        El archivo no contiene el código de la aplicación: ambos dispositivos deben abrir la misma PWA.
+      </p>
+    </div>
+  </div>
+</section>
 
 <section id="backupPanel" class="overlayPanel">
   <div class="panelInner">
@@ -2735,6 +2773,91 @@ function downloadJson(filename,obj){
   a.href=URL.createObjectURL(blob);a.download=filename;a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
+
+function openTransferPanel(){
+  const p=$("transferPanel");
+  if(p)p.classList.add("open");
+  updateTransferStatus("");
+}
+function closeTransferPanel(){
+  const p=$("transferPanel");
+  if(p)p.classList.remove("open");
+}
+function updateTransferStatus(msg){
+  const el=$("transferStatus");
+  if(el)el.textContent=msg||"";
+}
+function collectDeviceTransfer(){
+  // Ensure the editor is represented in the current state before exporting.
+  save();
+  const local={};
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
+    if(key!==null)local[key]=localStorage.getItem(key);
+  }
+  return {
+    format:"escritor-device-transfer",
+    version:1,
+    createdAt:new Date().toISOString(),
+    app:"Escritor",
+    appVersion:"V41 FIXED",
+    sourceOrigin:location.origin,
+    localStorage:local
+  };
+}
+function exportDeviceTransfer(){
+  try{
+    const data=collectDeviceTransfer();
+    const safe=(state.title||"escritor").replace(/[\\/:*?"<>|]+/g,"_").trim()||"escritor";
+    downloadJson(safe+"_transferencia.escritor",data);
+    updateTransferStatus("Archivo creado correctamente. Pasalo al otro dispositivo y cargalo desde Escritor.");
+  }catch(e){
+    updateTransferStatus("No se pudo crear la copia: "+(e.message||e));
+    alert("No se pudo crear el archivo de transferencia: "+(e.message||e));
+  }
+}
+async function importDeviceTransfer(file){
+  if(!file)return;
+  try{
+    const text=await file.text();
+    const data=JSON.parse(text);
+    if(data?.format!=="escritor-device-transfer" || !data.localStorage || typeof data.localStorage!=="object"){
+      throw new Error("El archivo no es una transferencia válida de Escritor.");
+    }
+    const keys=Object.keys(data.localStorage);
+    if(!keys.length)throw new Error("La transferencia no contiene datos.");
+    const novelRaw=data.localStorage[typeof KEY==="string"?KEY:"escritor_novela_v1"];
+    if(!novelRaw)throw new Error("La transferencia no contiene la novela.");
+    let novel;
+    try{novel=JSON.parse(novelRaw)}catch(e){throw new Error("La novela incluida en la transferencia está dañada.");}
+    if(!novel || !Array.isArray(novel.chapters) || !novel.chapters.length){
+      throw new Error("La transferencia no contiene capítulos válidos.");
+    }
+    const ok=confirm(
+      "Esto reemplazará los datos locales de Escritor en este dispositivo por la copia seleccionada.\\n\\n"+
+      "Capítulos encontrados: "+novel.chapters.length+"\\n"+
+      "Creada: "+(data.createdAt||"fecha desconocida")+"\\n\\n"+
+      "¿Querés continuar?"
+    );
+    if(!ok)return;
+
+    // Replace only the site's own persistent data. Keep browser-unrelated storage untouched.
+    const existingKeys=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k && k.indexOf("escritor_")===0)existingKeys.push(k);
+    }
+    existingKeys.forEach(k=>localStorage.removeItem(k));
+    keys.forEach(k=>localStorage.setItem(k,String(data.localStorage[k])));
+
+    updateTransferStatus("Transferencia restaurada. Recargando…");
+    setTimeout(()=>location.reload(),250);
+  }catch(e){
+    updateTransferStatus("No se pudo cargar la transferencia: "+(e.message||e));
+    alert("No se pudo cargar la transferencia: "+(e.message||e));
+  }
+}
+
 function collectFullBackup(){
   save();
   return {
