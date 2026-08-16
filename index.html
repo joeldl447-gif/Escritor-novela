@@ -152,6 +152,18 @@ body.night #appMenu .menu-title{border-color:#333}
 .analysis-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
 .character-relation-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:8px 0}.character-relation-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.character-relation-type{font-weight:700}.character-relation-evidence{margin-top:8px;padding:9px;border-radius:8px;background:#f0f0f0;font-size:13px}.character-alias-card{border:1px solid #ddd;border-radius:10px;padding:10px;margin:7px 0}.character-section-title{margin-top:18px}.night .character-relation-card,.night .character-alias-card{border-color:#444}.night .character-relation-evidence{background:#303030}
 
+
+.character-continuity-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:8px 0}
+.character-continuity-card.warning{border-left:4px solid #d88}
+.character-continuity-card.info{border-left:4px solid #aaa}
+.character-continuity-card h4{margin:0 0 6px}
+.character-continuity-evidence{margin:8px 0;padding:9px;border-radius:8px;background:#f0f0f0}
+.character-timeline-item{display:flex;gap:10px;align-items:flex-start;border-left:2px solid #aaa;padding:8px 0 8px 12px;margin-left:5px}
+.character-timeline-dot{width:9px;height:9px;border-radius:50%;background:#777;flex:0 0 auto;margin-top:5px}
+.night .character-continuity-card{border-color:#444}
+.night .character-continuity-evidence{background:#303030}
+@media(max-width:600px){.character-timeline-item{display:block}}
+
 .character-detail-section{border-top:1px solid #ddd;padding:12px 0}
 .character-detail-section:first-child{border-top:0}
 .character-detail-section h3{margin:0 0 8px}
@@ -722,6 +734,16 @@ body.night #appMenu .menu-title{border-color:#333}
 <button onclick="characterAppearanceNext()">Siguiente →</button>
 </div>
 <div id="characterAppearancesList"></div>
+</div>
+</section>
+<section id="characterContinuityPanel" class="overlayPanel">
+<div class="panelInner">
+  <div style="display:flex;gap:8px;align-items:center">
+    <button class="icon" onclick="closeCharacterContinuity()">←</button>
+    <h2 id="characterContinuityTitle" style="flex:1">⚠️ Continuidad</h2>
+  </div>
+  <div id="characterContinuitySummary" class="muted" style="margin:8px 0"></div>
+  <div id="characterContinuityContent"></div>
 </div>
 </section>
 <section id="characterDetailPanel" class="overlayPanel">
@@ -3336,6 +3358,217 @@ function goToCharacterDetailLocation(ci,pi){
 }
 
 
+
+let characterContinuityState={characterIndex:null,issues:[],timeline:[]};
+
+function characterAllParagraphs(index){
+  const c=state.characters[index];
+  if(!c)return [];
+  const terms=[c.name].concat(Array.isArray(c.aliases)?c.aliases:[])
+    .map(x=>normalize(String(x||""))).filter(Boolean);
+  const rows=[];
+  state.chapters.forEach((ch,ci)=>{
+    const div=document.createElement("div");
+    div.innerHTML=ch.html||"";
+    [...div.querySelectorAll("p")].forEach((p,pi)=>{
+      const text=(p.innerText||p.textContent||"").trim();
+      const n=normalize(text);
+      if(text && terms.some(t=>t && n.includes(t))){
+        rows.push({ci,pi,chapter:ch.name||("Capítulo "+(ci+1)),text});
+      }
+    });
+  });
+  return rows;
+}
+
+function detectCharacterTimeline(index){
+  const rows=characterAllParagraphs(index);
+  const timeline=[];
+  rows.forEach(r=>{
+    const n=normalize(r.text);
+    let event="";
+    if(/\b(murio|murió|muerto|muerta|fallecio|falleció)\b/.test(n))event="Posible muerte";
+    else if(/\b(desaparecio|desapareció|desaparecido|desaparecida)\b/.test(n))event="Posible desaparición";
+    else if(/\b(herido|herida|hirieron|herido gravemente)\b/.test(n))event="Posible herida";
+    else if(/\b(llego|llegó|llegaron|entro|entró|salio|salió)\b/.test(n))event="Movimiento / llegada";
+    else if(/\b(conocio|conoció|conocieron)\b/.test(n))event="Posible encuentro";
+    else if(/\b(decidio|decidió|decidieron|acepto|aceptó|rechazo|rechazó|prometio|prometió)\b/.test(n))event="Decisión / cambio";
+    if(event)timeline.push({...r,event});
+  });
+  return timeline;
+}
+
+function detectCharacterContinuityIssues(index){
+  const c=state.characters[index], rows=characterAllParagraphs(index), issues=[];
+  if(!c)return issues;
+
+  // Status contradiction.
+  const death=rows.find(r=>/\b(murio|murió|muerto|muerta|fallecio|falleció)\b/.test(normalize(r.text)));
+  if(death && normalize(c.status||"")!=="muerto"){
+    issues.push({
+      type:"status",severity:"warning",
+      title:"Posible contradicción de estado",
+      description:`La ficha está marcada como «${c.status||"desconocido"}», pero encontré una referencia que podría indicar una muerte.`,
+      evidence:[death]
+    });
+  }
+
+  const disappeared=rows.find(r=>/\b(desaparecio|desapareció|desaparecido|desaparecida)\b/.test(normalize(r.text)));
+  if(disappeared && !["muerto","desaparecido"].includes(normalize(c.status||""))){
+    issues.push({
+      type:"status",severity:"warning",
+      title:"Posible desaparición",
+      description:`Encontré una referencia a una posible desaparición, pero la ficha figura como «${c.status||"desconocido"}».`,
+      evidence:[disappeared]
+    });
+  }
+
+  // Age references vs confirmed age. We only flag explicit numeric references;
+  // we never change the stored age.
+  const age=parseInt(String(c.age||"").match(/\d+/)?.[0]||"",10);
+  if(age){
+    const refs=[];
+    rows.forEach(r=>{
+      const m=normalize(r.text).match(/\b(?:de|con)\s+(\d{1,3})\s+años\b/);
+      if(m && Number(m[1])!==age)refs.push({...r,foundAge:Number(m[1])});
+    });
+    if(refs.length){
+      issues.push({
+        type:"age",severity:"warning",
+        title:"Posible contradicción de edad",
+        description:`La ficha indica ${age} años, pero encontré una o más referencias con otra edad.`,
+        evidence:refs.slice(0,5)
+      });
+    }
+  }
+
+  // Duplicate/near-duplicate name issue: if an alias is also another confirmed
+  // character name, ask for manual review.
+  const normalizedName=normalize(c.name);
+  const aliasConflict=(c.aliases||[]).find(a=>
+    state.characters.some((other,j)=>j!==index && normalize(other.name)===normalize(a))
+  );
+  if(aliasConflict){
+    issues.push({
+      type:"identity",severity:"warning",
+      title:"Posible conflicto de identidad",
+      description:`El alias «${aliasConflict}» coincide con el nombre de otro personaje confirmado.`,
+      evidence:[]
+    });
+  }
+
+  // Same chapter, impossible-seeming "first meeting" after many prior chapters.
+  const rels=Array.isArray(c.relations)?c.relations:[];
+  rels.forEach(rel=>{
+    const target=state.characters.find(x=>normalize(x.name)===normalize(rel.target));
+    if(!target)return;
+    const otherIndex=state.characters.indexOf(target);
+    const otherRows=characterAllParagraphs(otherIndex);
+    const joint=[];
+    rows.forEach(a=>otherRows.forEach(b=>{
+      if(a.ci===b.ci && a.pi===b.pi)joint.push(a);
+    }));
+    if(joint.length && /\b(conocimos|conocio|conoció|se conocieron|por primera vez)\b/.test(normalize(joint[0].text))){
+      issues.push({
+        type:"relationship",severity:"info",
+        title:"Revisar primera aparición de una relación",
+        description:`La relación «${c.name} → ${rel.type} → ${rel.target}» tiene una referencia que podría indicar un primer encuentro.`,
+        evidence:[joint[0]]
+      });
+    }
+  });
+
+  return issues;
+}
+
+function openCharacterContinuity(index){
+  if(index<0 || index>=state.characters.length)return;
+  characterContinuityState={
+    characterIndex:index,
+    issues:detectCharacterContinuityIssues(index),
+    timeline:detectCharacterTimeline(index)
+  };
+  const c=state.characters[index];
+  $("characterContinuityTitle").textContent="⚠️ Continuidad · "+c.name;
+  renderCharacterContinuity();
+  $("characterContinuityPanel").classList.add("open");
+}
+
+function closeCharacterContinuity(){$("characterContinuityPanel").classList.remove("open");}
+
+function renderCharacterContinuity(){
+  const box=$("characterContinuityContent"),sum=$("characterContinuitySummary");
+  const s=characterContinuityState;
+  if(!box)return;
+  const c=state.characters[s.characterIndex];
+  if(sum)sum.textContent=`${s.issues.length} advertencia${s.issues.length===1?"":"s"} · ${s.timeline.length} acontecimientos detectados · nada se modifica automáticamente`;
+  let html="";
+
+  html+='<div class="character-detail-section"><h3>⚠️ Posibles contradicciones</h3>';
+  if(!s.issues.length){
+    html+='<div class="muted">No encontré contradicciones evidentes con las reglas actuales.</div>';
+  }else{
+    s.issues.forEach((issue,ii)=>{
+      html+=`<div class="character-continuity-card ${issue.severity}">
+        <h4>${esc(issue.title)}</h4>
+        <div>${esc(issue.description)}</div>`;
+      if(issue.evidence?.length){
+        issue.evidence.forEach(ev=>{
+          html+=`<div class="character-continuity-evidence"><div class="meta">${esc(ev.chapter)} · párrafo ${ev.pi+1}</div><div>“${esc(ev.text)}”</div><button type="button" onclick="goToCharacterContinuity(${ev.ci},${ev.pi})">📍 Revisar en el texto</button></div>`;
+        });
+      }
+      html+=`<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">
+        <button type="button" onclick="confirmIgnoreContinuityIssue(${ii})">✕ Ignorar esta advertencia</button>
+      </div></div>`;
+    });
+  }
+  html+='</div>';
+
+  html+='<div class="character-detail-section"><h3>📅 Línea temporal detectada</h3>';
+  if(!s.timeline.length){
+    html+='<div class="muted">No detecté acontecimientos claros con estas reglas.</div>';
+  }else{
+    s.timeline.forEach((ev,i)=>{
+      html+=`<div class="character-timeline-item">
+        <span class="character-timeline-dot"></span>
+        <div><b>${esc(ev.event)}</b><div class="meta">${esc(ev.chapter)} · párrafo ${ev.pi+1}</div><div>${esc(ev.text)}</div><button type="button" onclick="goToCharacterContinuity(${ev.ci},${ev.pi})">📍 Ir al acontecimiento</button></div>
+      </div>`;
+    });
+  }
+  html+='</div>';
+
+  html+=`<div class="character-detail-section"><h3>🟢 Estado confirmado</h3>
+    <div>Estado actual de la ficha: <b>${esc(c.status||"desconocido")}</b></div>
+    <div class="muted" style="margin-top:5px">Las detecciones anteriores nunca cambian este valor. Si querés modificarlo, se hace desde Editar ficha y requiere confirmación.</div>
+  </div>`;
+
+  box.innerHTML=html;
+}
+
+function goToCharacterContinuity(ci,pi){
+  closeCharacterContinuity();
+  state.current=ci;
+  load();
+  setTimeout(()=>{
+    const editor=document.getElementById("editor");
+    if(!editor)return;
+    const ps=[...editor.querySelectorAll("p")],p=ps[pi];
+    if(!p){alert("No pude localizar exactamente ese párrafo. El texto no fue modificado.");return}
+    p.scrollIntoView({behavior:"smooth",block:"center"});
+    p.classList.add("character-appearance-focus");
+    setTimeout(()=>p.classList.remove("character-appearance-focus"),3000);
+  },180);
+}
+
+function confirmIgnoreContinuityIssue(index){
+  const issue=characterContinuityState.issues[index];
+  if(!issue)return;
+  if(!confirm(`¿Ignorar esta advertencia?\n\n${issue.title}\n\nNo se modificará la novela ni la ficha.`))return;
+  characterContinuityState.issues.splice(index,1);
+  renderCharacterContinuity();
+}
+
+
 function characterProfileData(name,key){
   const appearances=[];
   const chapterSet=new Set();
@@ -3621,7 +3854,7 @@ function renderCharacterProfiles(){
 
     d.innerHTML=`
       <h3>👤 ${esc(name)}</h3>
-      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}<button type="button" class="character-action-btn" data-action="detail" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">📊 Analizar personaje</button><button type="button" class="character-action-btn" data-action="relations" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔗 Relaciones</button><button type="button" class="character-action-btn" data-action="detect-relations" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔎 Detectar relaciones</button></div>
+      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}<button type="button" class="character-action-btn" data-action="continuity" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">⚠️ Continuidad</button><button type="button" class="character-action-btn" data-action="detail" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">📊 Analizar personaje</button><button type="button" class="character-action-btn" data-action="relations" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔗 Relaciones</button><button type="button" class="character-action-btn" data-action="detect-relations" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔎 Detectar relaciones</button></div>
       <div class="character-profile-meta">
         ${known?.nameType&&known.nameType!=="nombre"?" · "+esc(known.nameType):""}
         ${data.appearances.length} aparición${data.appearances.length===1?"":"es"} · ${data.chapters.length} capítulo${data.chapters.length===1?"":"s"}
@@ -3662,6 +3895,7 @@ function renderCharacterProfiles(){
         if(!Number.isInteger(i)||i<0||i>=state.characters.length)return;
         if(action==="edit")openCharacterEdit(i);
         else if(action==="appearances")openCharacterAppearances(i);
+        else if(action==="continuity")openCharacterContinuity(i);
         else if(action==="detail")openCharacterDetail(i);
         else if(action==="relations")openCharacterRelations(i);
         else if(action==="detect-relations")showCharacterRelationCandidates(i);
