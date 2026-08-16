@@ -881,15 +881,16 @@ function toggleChapters(){document.body.classList.toggle("chapters-open")}
 function toggleAppMenu(){document.body.classList.remove("chapters-open");$("appMenu").classList.toggle("open");$("appMenuBackdrop").classList.toggle("open")}
 function closeAppMenu(){$("appMenu").classList.remove("open");$("appMenuBackdrop").classList.remove("open")}
 function applyNightMode(on){
-  document.body.classList.toggle("night",!!on);
-  try{localStorage.setItem(THEME_KEY,on?"1":"0")}catch(e){console.warn("No se pudo guardar el modo nocturno",e)}
+  const enabled=!!on;
+  document.body.classList.toggle("night",enabled);
+  try{localStorage.setItem("escritor_night",enabled?"1":"0");}catch(e){}
 }
 function toggleNight(){applyNightMode(!document.body.classList.contains("night"))}
 function toggleFocus(){document.body.classList.toggle("focus-mode")}
-function openLibrary(){renderLibrary();$("library").classList.add("open")}
-function closeLibrary(){$("library").classList.remove("open")}
-function openSearch(){$("searchPanel").classList.add("open");setTimeout(()=>$("globalSearch").focus(),50)}
-function closeSearch(){$("searchPanel").classList.remove("open")}
+function openLibrary(){renderLibrary();$("library").classList.add("open");setAppPanel("library")}
+function closeLibrary(){$("library").classList.remove("open");clearAppPanel()}
+function openSearch(){$("searchPanel").classList.add("open");setAppPanel("search");setTimeout(()=>$("globalSearch").focus(),50)}
+function closeSearch(){$("searchPanel").classList.remove("open");clearAppPanel()}
 let searchMode="all";
 function setSearchMode(mode){
   searchMode=mode;
@@ -1663,29 +1664,41 @@ let timelineFilter="all";
 
 let reviewState=[];
 
-/* V38 — navegación interna: recarga conserva la pantalla y Android/Back cierra el panel */
-const APP_PANEL_KEY="escritor_active_panel_v1";
-const THEME_KEY="escritor_night";
-const APP_PANELS=new Set(["map","timeline","review","backup"]);
+/* Navegación interna persistente.
+   - La pantalla abierta sobrevive a una recarga.
+   - Android/Back cierra primero la pantalla interna y no abandona la PWA.
+   - localStorage se usa para la pantalla porque sessionStorage se pierde en
+     algunos escenarios de PWA/WebView y no era fiable al recargar. */
+const APP_PANEL_KEY="escritor_active_panel";
+const APP_BASE_STATE="escritorBase";
 
 function currentAppPanel(){
   if($("mapPanel")?.classList.contains("open"))return "map";
   if($("timelinePanel")?.classList.contains("open"))return "timeline";
   if($("reviewPanel")?.classList.contains("open"))return "review";
+  if($("library")?.classList.contains("open"))return "library";
+  if($("searchPanel")?.classList.contains("open"))return "search";
+  if($("characterPanel")?.classList.contains("open"))return "characters";
   if(document.body.classList.contains("backup-open"))return "backup";
   return null;
 }
+function ensureAppBaseHistory(){
+  const s=history.state;
+  if(!s || (!s[APP_BASE_STATE] && !s.escritorPanel)){
+    history.replaceState({[APP_BASE_STATE]:true},"",location.pathname+location.search);
+  }
+}
 function setAppPanel(panel){
-  localStorage.setItem(APP_PANEL_KEY,panel);
+  try{localStorage.setItem(APP_PANEL_KEY,panel);}catch(e){}
   const current=history.state?.escritorPanel;
   if(current!==panel){
-    history.pushState({escritorPanel:panel},"","#"+panel);
+    history.pushState({escritorPanel:panel},"",location.pathname+location.search+"#"+panel);
   }
 }
 function clearAppPanel(){
-  localStorage.removeItem(APP_PANEL_KEY);
+  try{localStorage.removeItem(APP_PANEL_KEY);}catch(e){}
   if(history.state?.escritorPanel){
-    history.replaceState({escritorPanel:null},"",location.pathname+location.search);
+    history.replaceState({[APP_BASE_STATE]:true},"",location.pathname+location.search);
   }
 }
 function closeAnyAppPanel(){
@@ -1694,34 +1707,35 @@ function closeAnyAppPanel(){
   else if(p==="timeline")closeTimelinePanel();
   else if(p==="review")closeReviewPanel();
   else if(p==="backup")closeBackupPanel();
+  else if(p==="library")closeLibrary();
+  else if(p==="search")closeSearch();
+  else if(p==="characters")closeCharacterProfiles();
 }
 function restoreAppPanel(){
-  const p=localStorage.getItem(APP_PANEL_KEY);
-  if(!APP_PANELS.has(p)){
-    localStorage.removeItem(APP_PANEL_KEY);
-    return;
-  }
-  /* Restaurar no llama a open*Panel: esas funciones hacen history.pushState(). */
-  if(p==="map"){ensureMapState();$("mapPanel").classList.add("open");initBuenosAiresMap()}
-  else if(p==="timeline"){
-    ensureTimelineState();$("timelinePanel").classList.add("open");
-    if(!state.timeline.length)seedTimelineFromDetection(false);
-    populateTimelineChapterSelect();renderTimelineCanvas();setTimeout(centerTimeline,40);
-  }
-  else if(p==="review"){$("reviewPanel").classList.add("open");bindReviewButton();renderReview()}
-  else if(p==="backup"){document.body.classList.add("backup-open");renderBackupPanel()}
+  let p=null;
+  try{p=localStorage.getItem(APP_PANEL_KEY);}catch(e){}
+  if(!p)return;
+  if(p==="map")openMapPanel();
+  else if(p==="timeline")openTimelinePanel();
+  else if(p==="review")openReviewPanel();
+  else if(p==="backup")openBackupPanel();
+  else if(p==="library")openLibrary();
+  else if(p==="search")openSearch();
+  else if(p==="characters")openCharacterProfiles();
+  else {try{localStorage.removeItem(APP_PANEL_KEY);}catch(e){}}
 }
 window.addEventListener("popstate",function(){
-  /* El gesto/botón Atrás del teléfono no abandona GitHub Pages
-     mientras haya un panel interno abierto. */
   const p=currentAppPanel();
-  if(p){
-    if(p==="map"){$("mapPanel").classList.remove("open");closeMapEditors()}
-    if(p==="timeline"){$("timelinePanel").classList.remove("open");closeTimelineEditor()}
-    if(p==="review")$("reviewPanel").classList.remove("open");
-    if(p==="backup")document.body.classList.remove("backup-open");
-    localStorage.removeItem(APP_PANEL_KEY);
-  }
+  if(!p)return;
+  if(p==="map"){$("mapPanel").classList.remove("open");closeMapEditors()}
+  if(p==="timeline"){$("timelinePanel").classList.remove("open");closeTimelineEditor()}
+  if(p==="review")$("reviewPanel").classList.remove("open");
+  if(p==="backup")document.body.classList.remove("backup-open");
+  if(p==="library")$("library").classList.remove("open");
+  if(p==="search")$("searchPanel").classList.remove("open");
+  if(p==="characters")$("characterPanel").classList.remove("open");
+  try{localStorage.removeItem(APP_PANEL_KEY);}catch(e){}
+  ensureAppBaseHistory();
 });
 
 function openReviewPanel(){
@@ -2567,8 +2581,8 @@ function bindMapUI(){
   $("mapStreetDelete").addEventListener("click",deleteMapStreet);
 }
 
-function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}
-function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
+function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open");setAppPanel("characters")}
+function closeCharacterProfiles(){$("characterPanel").classList.remove("open");clearAppPanel()}
 
 function characterProfileData(name,key){
   const appearances=[];
@@ -2997,15 +3011,14 @@ class SimpleZip{
 function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return(~c)>>>0}
 
 try{
-  const savedNight=localStorage.getItem(THEME_KEY);
-  /* Compatibilidad con versiones anteriores, sin escribir KEY al arrancar. */
-  document.body.classList.toggle("night",savedNight==="1" || (savedNight===null && state?.night===true));
-}catch(e){console.warn("No se pudo restaurar el modo nocturno",e)}
+  if(localStorage.getItem("escritor_night")==="1")document.body.classList.add("night");
+}catch(e){}
+ensureAppBaseHistory();
 load();
 updateAIStatus();
-restoreAppPanel();
+setTimeout(()=>restoreAppPanel(),60);
 
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=12").catch(()=>{});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=11").catch(()=>{});
 </script>
 </body>
 </html>
