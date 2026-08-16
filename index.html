@@ -151,6 +151,20 @@ body.night #appMenu .menu-title{border-color:#333}
 .analysis-click{cursor:pointer}.analysis-click:hover{text-decoration:underline}
 .analysis-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
 .character-relation-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:8px 0}.character-relation-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.character-relation-type{font-weight:700}.character-relation-evidence{margin-top:8px;padding:9px;border-radius:8px;background:#f0f0f0;font-size:13px}.character-alias-card{border:1px solid #ddd;border-radius:10px;padding:10px;margin:7px 0}.character-section-title{margin-top:18px}.night .character-relation-card,.night .character-alias-card{border-color:#444}.night .character-relation-evidence{background:#303030}
+
+.character-detail-section{border-top:1px solid #ddd;padding:12px 0}
+.character-detail-section:first-child{border-top:0}
+.character-detail-section h3{margin:0 0 8px}
+.character-detail-item{border:1px solid #ddd;border-radius:9px;padding:10px;margin:7px 0}
+.character-detail-item .meta{font-size:12px;opacity:.7;margin-bottom:5px}
+.character-detail-item button{margin-top:7px}
+.character-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.character-stat{border:1px solid #ddd;border-radius:9px;padding:10px;text-align:center}
+.character-stat b{display:block;font-size:20px}
+.night .character-detail-section{border-color:#444}
+.night .character-detail-item,.night .character-stat{border-color:#444}
+@media(max-width:600px){.character-stat-grid{grid-template-columns:1fr 1fr}}
+
 .character-appearance-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:8px 0}.character-appearance-context{margin-top:8px;padding:10px;border-radius:8px;background:#f0f0f0;line-height:1.5}.character-appearance-card.current{outline:3px solid #e2a83b;outline-offset:2px}.character-appearance-card button{margin-top:8px}.night .character-appearance-card{border-color:#444}.night .character-appearance-context{background:#303030}
 .character-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.character-edit-grid label,#characterEditPanel label{display:flex;flex-direction:column;gap:5px;margin-top:10px}.character-edit-grid input,.character-edit-grid select,#characterEditPanel textarea{box-sizing:border-box;width:100%}.character-action-btn{touch-action:manipulation;position:relative;z-index:2;pointer-events:auto;cursor:pointer}.character-edit-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}@media(max-width:600px){.character-edit-grid{grid-template-columns:1fr}}
 .language-finding-focus{outline:3px solid #e2a83b;outline-offset:4px;border-radius:6px;transition:outline-color .2s}
@@ -708,6 +722,15 @@ body.night #appMenu .menu-title{border-color:#333}
 <button onclick="characterAppearanceNext()">Siguiente →</button>
 </div>
 <div id="characterAppearancesList"></div>
+</div>
+</section>
+<section id="characterDetailPanel" class="overlayPanel">
+<div class="panelInner">
+  <div style="display:flex;gap:8px;align-items:center">
+    <button class="icon" onclick="closeCharacterDetail()">←</button>
+    <h2 id="characterDetailTitle" style="flex:1">👤 Detalle</h2>
+  </div>
+  <div id="characterDetailContent"></div>
 </div>
 </section>
 <section id="characterEditPanel" class="overlayPanel">
@@ -3175,6 +3198,144 @@ function showCharacterRelationCandidates(index){
 }
 
 
+
+let characterDetailState={characterIndex:null};
+
+function characterDetailRows(index){
+  const c=state.characters[index];
+  if(!c)return {places:[],events:[],snippets:[]};
+  const terms=[c.name].concat(Array.isArray(c.aliases)?c.aliases:[]).map(x=>normalize(String(x||""))).filter(Boolean);
+  const places=[],events=[],snippets=[];
+  const placeWords=/\b(?:en|desde|hacia|hasta|dentro de|fuera de|cerca de|frente a|junto a|sobre|bajo|por|desde)\s+(?:la|el|los|las|un|una)?\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]*(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]*){0,3})/g;
+  const eventWords=/\b(?:murió|murió|nació|llegó|llego|salió|salio|conoció|conocio|descubrió|descubrio|perdió|perdio|encontró|encontro|escapó|escapo|fue herido|fue herida|se separó|se separo|volvió|volvio|apareció|aparecio|desapareció|desaparecio|decidió|decidio|prometió|prometio|aceptó|acepto|rechazó|rechazo)\b/i;
+
+  state.chapters.forEach((ch,ci)=>{
+    const div=document.createElement("div");
+    div.innerHTML=ch.html||"";
+    [...div.querySelectorAll("p")].forEach((p,pi)=>{
+      const raw=(p.innerText||p.textContent||"").trim();
+      const n=normalize(raw);
+      if(!n || !terms.some(t=>n.includes(t)))return;
+
+      snippets.push({ci,pi,text:raw});
+      if(eventWords.test(raw))events.push({ci,pi,text:raw});
+      eventWords.lastIndex=0;
+
+      let m;
+      while((m=placeWords.exec(raw))!==null){
+        const place=String(m[1]||"").trim().replace(/[.,;:!?]+$/,"");
+        if(place.length>=3)places.push({ci,pi,name:place,text:raw});
+      }
+      placeWords.lastIndex=0;
+    });
+  });
+
+  const unique=(arr,keyFn)=>{
+    const seen=new Set(),out=[];
+    arr.forEach(x=>{const k=keyFn(x);if(!seen.has(k)){seen.add(k);out.push(x)}});
+    return out;
+  };
+  return {
+    places:unique(places,x=>normalize(x.name)+"|"+x.ci+"|"+x.pi),
+    events:unique(events,x=>x.ci+"|"+x.pi),
+    snippets:unique(snippets,x=>x.ci+"|"+x.pi)
+  };
+}
+
+function openCharacterDetail(index){
+  if(index<0 || index>=state.characters.length)return;
+  characterDetailState.characterIndex=index;
+  const c=state.characters[index];
+  $("characterDetailTitle").textContent="👤 "+c.name+" · análisis";
+  renderCharacterDetail();
+  $("characterDetailPanel").classList.add("open");
+}
+function closeCharacterDetail(){$("characterDetailPanel").classList.remove("open");}
+
+function renderCharacterDetail(){
+  const box=$("characterDetailContent");
+  const i=characterDetailState.characterIndex;
+  const c=state.characters[i];
+  if(!box||!c)return;
+  const d=characterDetailRows(i);
+
+  let html=`<div class="character-stat-grid">
+    <div class="character-stat"><b>${d.snippets.length}</b>Apariciones</div>
+    <div class="character-stat"><b>${new Set(d.snippets.map(x=>x.ci)).size}</b>Capítulos</div>
+    <div class="character-stat"><b>${d.events.length}</b>Acontecimientos</div>
+  </div>`;
+
+  html+=`<div class="character-detail-section"><h3>📍 Lugares asociados</h3>`;
+  if(!d.places.length)html+='<div class="muted">No detecté lugares asociados con suficiente evidencia.</div>';
+  else d.places.forEach(x=>{
+    html+=`<div class="character-detail-item"><b>${esc(x.name)}</b><div class="meta">${esc(state.chapters[x.ci].name)} · párrafo ${x.pi+1}</div><button type="button" onclick="goToCharacterDetailLocation(${x.ci},${x.pi})">📍 Ir al lugar</button></div>`;
+  });
+  html+='</div>';
+
+  html+=`<div class="character-detail-section"><h3>🎬 Evolución / acontecimientos</h3>`;
+  if(!d.events.length)html+='<div class="muted">No detecté acontecimientos claros todavía.</div>';
+  else d.events.forEach(x=>{
+    html+=`<div class="character-detail-item"><div class="meta">${esc(state.chapters[x.ci].name)} · párrafo ${x.pi+1}</div><div>${esc(x.text)}</div><button type="button" onclick="goToCharacterDetailLocation(${x.ci},${x.pi})">📍 Ir al acontecimiento</button></div>`;
+  });
+  html+='</div>';
+
+  html+=`<div class="character-detail-section"><h3>📝 Fragmentos relevantes</h3>`;
+  if(!d.snippets.length)html+='<div class="muted">No hay fragmentos.</div>';
+  else d.snippets.slice(0,50).forEach(x=>{
+    html+=`<div class="character-detail-item"><div class="meta">${esc(state.chapters[x.ci].name)} · párrafo ${x.pi+1}</div><div>${esc(x.text)}</div><button type="button" onclick="goToCharacterDetailLocation(${x.ci},${x.pi})">📍 Ir al fragmento</button></div>`;
+  });
+  html+='</div>';
+
+  html+=`<div class="character-detail-section">
+    <h3>⚠️ Control de continuidad</h3>
+    <div class="muted">Estas advertencias son sugerencias. No modifican la novela.</div>
+    ${renderCharacterContinuityWarnings(i)}
+  </div>`;
+
+  box.innerHTML=html;
+}
+
+function renderCharacterContinuityWarnings(index){
+  const c=state.characters[index],warnings=[];
+  if(!c)return "";
+  const rows=characterDetailRows(index).snippets;
+  if(c.age && rows.length){
+    const ageNums=(c.age.match(/\d+/g)||[]).map(Number);
+    if(ageNums.length && ageNums[0]>0){
+      warnings.push(`La ficha indica una edad de ${ageNums[0]} años. Conviene comprobar manualmente que la edad sea consistente en todos los capítulos.`);
+    }
+  }
+  const statuses=new Set();
+  rows.forEach(x=>{
+    const n=normalize(x.text);
+    if(/\bmuerto\b|\bmurio\b|\bmurió\b/.test(n))statuses.add("muerte");
+    if(/\bherido\b|\bherida\b/.test(n))statuses.add("herida");
+  });
+  if(statuses.has("muerte") && c.status==="vivo"){
+    warnings.push("La novela contiene una referencia que podría indicar una muerte, pero la ficha está marcada como «Vivo».");
+  }
+  if(rows.length===0)warnings.push("No se encontraron apariciones con el nombre o alias actual.");
+  if(!warnings.length)return '<div class="muted" style="margin-top:8px">No encontré inconsistencias evidentes con estas reglas básicas.</div>';
+  return '<ul style="margin:8px 0 0 18px">'+warnings.map(w=>`<li style="margin:6px 0">${esc(w)}</li>`).join("")+'</ul>';
+}
+
+function goToCharacterDetailLocation(ci,pi){
+  closeCharacterDetail();
+  state.current=ci;
+  load();
+  setTimeout(()=>{
+    const editor=document.getElementById("editor");
+    if(!editor)return;
+    const ps=[...editor.querySelectorAll("p")];
+    const p=ps[pi];
+    if(!p)return;
+    p.scrollIntoView({behavior:"smooth",block:"center"});
+    p.classList.add("character-appearance-focus");
+    setTimeout(()=>p.classList.remove("character-appearance-focus"),3000);
+  },180);
+}
+
+
 function characterProfileData(name,key){
   const appearances=[];
   const chapterSet=new Set();
@@ -3460,7 +3621,7 @@ function renderCharacterProfiles(){
 
     d.innerHTML=`
       <h3>👤 ${esc(name)}</h3>
-      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}<button type="button" class="character-action-btn" data-action="relations" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔗 Relaciones</button><button type="button" class="character-action-btn" data-action="detect-relations" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔎 Detectar relaciones</button></div>
+      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}<button type="button" class="character-action-btn" data-action="detail" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">📊 Analizar personaje</button><button type="button" class="character-action-btn" data-action="relations" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔗 Relaciones</button><button type="button" class="character-action-btn" data-action="detect-relations" data-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔎 Detectar relaciones</button></div>
       <div class="character-profile-meta">
         ${known?.nameType&&known.nameType!=="nombre"?" · "+esc(known.nameType):""}
         ${data.appearances.length} aparición${data.appearances.length===1?"":"es"} · ${data.chapters.length} capítulo${data.chapters.length===1?"":"s"}
@@ -3501,6 +3662,7 @@ function renderCharacterProfiles(){
         if(!Number.isInteger(i)||i<0||i>=state.characters.length)return;
         if(action==="edit")openCharacterEdit(i);
         else if(action==="appearances")openCharacterAppearances(i);
+        else if(action==="detail")openCharacterDetail(i);
         else if(action==="relations")openCharacterRelations(i);
         else if(action==="detect-relations")showCharacterRelationCandidates(i);
       });
