@@ -1,5 +1,5 @@
-const CACHE="escritor-v44";
-const OLD_CACHES=["escritor-v41","escritor-v42","escritor-v43","escritor-v44"];
+const CACHE="escritor-v45";
+const OLD_CACHES=["escritor-v41","escritor-v42","escritor-v43","escritor-v45"];
 self.addEventListener("install",e=>self.skipWaiting());
 self.addEventListener("activate",e=>e.waitUntil((async()=>{
   const keys=await caches.keys();

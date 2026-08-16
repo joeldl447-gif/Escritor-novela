@@ -739,7 +739,7 @@ const KEY="escritor_novela_v1";
 const BACKUP_KEY="escritor_novela_backup_v1";
 const NIGHT_KEY="escritor_night";
 const DB_NAME="EscritorPWAPersistence";
-const APP_VERSION="44";
+const APP_VERSION="45";
 const DB_STORE="snapshots";
 
 function defaultState(){return {
@@ -783,41 +783,146 @@ const $=id=>document.getElementById(id);
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function textOf(h){let d=document.createElement("div");d.innerHTML=h;return d.innerText.trim()}
 
+let persistenceQueue=Promise.resolve();
+
 function persistState(){
   state._savedAt=Date.now();
   const raw=JSON.stringify(state);
-  // localStorage is the synchronous source of truth. Both copies are written
-  // before any asynchronous backup is attempted.
+
+  // IndexedDB is the durable source of truth. localStorage is only a
+  // synchronous fallback and must never be allowed to block a save.
+  persistenceQueue=persistenceQueue.then(()=>persistStateIndexedDB(raw)).catch(()=>{});
+
+  // Keep only a small fallback copy in localStorage. Large automatic backups
+  // and chapter histories can exceed the browser's localStorage quota.
   try{
     localStorage.setItem(KEY,raw);
-    localStorage.setItem(BACKUP_KEY,raw);
-  }catch(e){}
-  persistStateIndexedDB(raw);
+  }catch(e){
+    // If an old automatic-backup collection filled the quota, remove it and
+    // retry once. The IndexedDB save above remains authoritative.
+    try{
+      localStorage.removeItem(AUTO_BACKUP_KEY);
+      localStorage.setItem(KEY,raw);
+    }catch(e2){}
+  }
 }
+
 function openPersistenceDB(){
   return new Promise((resolve,reject)=>{
     if(!window.indexedDB)return reject(new Error("IndexedDB unavailable"));
-    const req=indexedDB.open(DB_NAME,1);
-    req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(DB_STORE))req.result.createObjectStore(DB_STORE)};
+    const req=indexedDB.open(DB_NAME,2);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(DB_STORE))db.createObjectStore(DB_STORE);
+    };
     req.onsuccess=()=>resolve(req.result);
     req.onerror=()=>reject(req.error);
   });
 }
+
 async function persistStateIndexedDB(raw){
-  try{const db=await openPersistenceDB();const tx=db.transaction(DB_STORE,"readwrite");tx.objectStore(DB_STORE).put(raw,"latest");tx.oncomplete=()=>db.close()}catch(e){}
+  const db=await openPersistenceDB();
+  try{
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(DB_STORE,"readwrite");
+      tx.objectStore(DB_STORE).put({
+        raw,
+        savedAt:Number(state._savedAt)||Date.now()
+      },"latest");
+      tx.oncomplete=resolve;
+      tx.onerror=()=>reject(tx.error);
+      tx.onabort=()=>reject(tx.error||new Error("IndexedDB transaction aborted"));
+    });
+  }finally{db.close()}
 }
+
+async function readIndexedDBState(){
+  const db=await openPersistenceDB();
+  try{
+    const value=await new Promise((resolve,reject)=>{
+      const tx=db.transaction(DB_STORE,"readonly");
+      const req=tx.objectStore(DB_STORE).get("latest");
+      req.onsuccess=()=>resolve(req.result||null);
+      req.onerror=()=>reject(req.error);
+    });
+    const raw=typeof value==="string"?value:value?.raw;
+    const parsed=parseState(raw||"");
+    return parsed;
+  }finally{db.close()}
+}
+
 async function recoverStateIndexedDB(){
   try{
-    const db=await openPersistenceDB();
-    const raw=await new Promise((resolve,reject)=>{const tx=db.transaction(DB_STORE,"readonly");const req=tx.objectStore(DB_STORE).get("latest");req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error)});
-    db.close();
-    if(!raw)return false;
-    const parsed=JSON.parse(raw);
-    if(!parsed||!Array.isArray(parsed.chapters)||!parsed.chapters.length)return false;
-    state=parsed;state.characters=state.characters||[];state.places=state.places||[];state.history=state.history||{};state.timeline=Array.isArray(state.timeline)?state.timeline:[];
-    try{localStorage.setItem(KEY,raw);localStorage.setItem(BACKUP_KEY,raw)}catch(e){}
+    const parsed=await readIndexedDBState();
+    if(!parsed)return false;
+    state=parsed;
+    state.characters=state.characters||[];
+    state.places=state.places||[];
+    state.history=state.history||{};
+    state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+    try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
     return true;
   }catch(e){return false}
+}
+
+async function initializePersistentState(){
+  // Delete the old quota-heavy automatic backup collection. It duplicated
+  // the entire manuscript up to 12 times in localStorage.
+  try{localStorage.removeItem(AUTO_BACKUP_KEY)}catch(e){}
+
+  const localCandidates=[];
+  try{
+    const a=parseState(localStorage.getItem(KEY)||"");
+    const b=parseState(localStorage.getItem(BACKUP_KEY)||"");
+    if(a)localCandidates.push(a);
+    if(b)localCandidates.push(b);
+  }catch(e){}
+
+  let dbState=null;
+  try{dbState=await readIndexedDBState()}catch(e){}
+
+  const candidates=[...localCandidates];
+  if(dbState)candidates.push(dbState);
+
+  const isStarterOnly=(s)=>{
+    if(!s||!Array.isArray(s.chapters)||s.chapters.length!==1)return false;
+    const c=s.chapters[0]||{};
+    return String(c.name||"").trim()==="Capítulo 1" &&
+      /Empezá a escribir acá/i.test(String(c.html||""));
+  };
+
+  if(candidates.length){
+    // A previous failed boot could have written the empty starter state with
+    // a newer timestamp than the real manuscript. Never let that starter
+    // snapshot win when another stored snapshot contains actual work.
+    const realCandidates=candidates.filter(s=>!isStarterOnly(s));
+    const pool=realCandidates.length?realCandidates:candidates;
+    pool.sort((a,b)=>(Number(b._savedAt)||0)-(Number(a._savedAt)||0));
+    state=pool[0];
+  }else{
+    state=defaultState();
+  }
+
+  state.characters=state.characters||[];
+  state.places=state.places||[];
+  state.history=state.history||{};
+  state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+  state.editorZoom=Number(state.editorZoom)||1;
+  state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
+
+  // Apply the theme only after the persistent state has been selected.
+  let night=!!state.night;
+  try{
+    const savedNight=localStorage.getItem(NIGHT_KEY);
+    if(savedNight!==null)night=savedNight==="1";
+  }catch(e){}
+  state.night=night;
+  document.body.classList.toggle("night",night);
+
+  ensureAppBaseHistory();
+  load();
+  updateAIStatus();
+  restoreAppPanel();
 }
 function save(){
   state.title=$("title").value;
@@ -939,7 +1044,7 @@ function deleteChapter(i){
   selected=null;persistState();load();
 }
 function saveNote(){if(selected===null)return;state.chapters[state.current].notes=state.chapters[state.current].notes||{};state.chapters[state.current].notes[selected]=$("noteText").value.trim();persistState();document.body.classList.remove("notes-open")}
-function clearNote(){if(selected===null)return;delete (state.chapters[state.current].notes||{})[selected];$("noteText").value="";localStorage.setItem(KEY,JSON.stringify(state))}
+function clearNote(){if(selected===null)return;delete (state.chapters[state.current].notes||{})[selected];$("noteText").value="";persistState()}
 function toggleNotes(){document.body.classList.toggle("notes-open")}
 function toggleChapters(){document.body.classList.toggle("chapters-open")}
 function toggleAppMenu(){document.body.classList.remove("chapters-open");$("appMenu").classList.toggle("open");$("appMenuBackdrop").classList.toggle("open")}
@@ -949,7 +1054,6 @@ function applyNightMode(on){
   document.body.classList.toggle("night",enabled);
   state.night=enabled;
   try{localStorage.setItem(NIGHT_KEY,enabled?"1":"0");}catch(e){}
-  try{localStorage.setItem(BACKUP_KEY,JSON.stringify(state));}catch(e){}
   persistState();
 }
 function toggleNight(){applyNightMode(!document.body.classList.contains("night"))}
@@ -1997,7 +2101,7 @@ function ensureTimelineState(){
   if(!Array.isArray(state.timeline))state.timeline=[];
 }
 function timelineId(){return "tm_"+Date.now()+"_"+Math.random().toString(36).slice(2,8)}
-function saveTimeline(){localStorage.setItem(KEY,JSON.stringify(state))}
+function saveTimeline(){persistState()}
 function openTimelinePanel(){
   ensureTimelineState();
   $("timelinePanel").classList.add("open");
@@ -2271,7 +2375,7 @@ function ensureMapState(){
   if(!Array.isArray(state.mapRoutes))state.mapRoutes=[];
   if(!Array.isArray(state.mapStreets))state.mapStreets=[];
 }
-function saveMapState(){localStorage.setItem(KEY,JSON.stringify(state))}
+function saveMapState(){persistState()}
 function openMapPanel(){
   ensureMapState();
   $("mapPanel").classList.add("open");
@@ -2878,32 +2982,14 @@ const AUTO_BACKUP_KEY="escritor_auto_backups_v1";
 let lastAutoBackupSerialized="";
 let lastAutoBackupTime=0;
 function getAutoBackups(){
-  try{return JSON.parse(localStorage.getItem(AUTO_BACKUP_KEY)||"[]")}catch(e){return[]}
+  // Automatic full-manuscript copies are now kept by the primary IndexedDB
+  // snapshot. Do not duplicate them in localStorage.
+  return [];
 }
 function createAutoBackup(force){
-  try{
-    const serialized=JSON.stringify({
-      title:state.title,
-      chapters:state.chapters,
-      current:state.current,
-      characters:state.characters||[],
-      places:state.places||[]
-    });
-    const now=Date.now();
-    // Avoid filling localStorage on every keystroke.
-    if(!force && serialized===lastAutoBackupSerialized)return;
-    if(!force && now-lastAutoBackupTime<60000)return;
-    const arr=getAutoBackups();
-    arr.push({time:new Date().toISOString(),data:JSON.parse(serialized)});
-    while(arr.length>12)arr.shift();
-    localStorage.setItem(AUTO_BACKUP_KEY,JSON.stringify(arr));
-    lastAutoBackupSerialized=serialized;
-    lastAutoBackupTime=now;
-    renderBackupPanel();
-  }catch(e){
-    // If storage is full, keep the editor working. Old automatic copies are optional.
-    console.warn("No se pudo crear copia automática",e);
-  }
+  // persistState() already writes the complete manuscript to IndexedDB.
+  // Kept as a compatibility function for existing UI calls.
+  return;
 }
 function openBackupPanel(){
   document.body.classList.add("backup-open");
@@ -3077,30 +3163,22 @@ class SimpleZip{
 }
 function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return(~c)>>>0}
 
-try{
-  const savedNight=localStorage.getItem(NIGHT_KEY);
-  if(savedNight!==null ? savedNight==="1" : !!state.night) document.body.classList.add("night");
-}catch(e){if(state.night)document.body.classList.add("night")}
-ensureAppBaseHistory();
-load();
-updateAIStatus();
-setTimeout(async()=>{
-  const rawOk=(()=>{
-    try{
-      const a=parseState(localStorage.getItem(KEY)||"");
-      const b=parseState(localStorage.getItem(BACKUP_KEY)||"");
-      return !!(a||b);
-    }catch(e){return false}
-  })();
-  // IndexedDB is only a recovery source when BOTH synchronous copies are
-  // unavailable. It can never overwrite a valid manuscript during startup.
-  if(!rawOk && await recoverStateIndexedDB()) load();
-  restoreAppPanel();
-},60);
+// IMPORTANT: do not render the editor from the starter state before the
+// persistent stores have been checked. That race was allowing a reload to
+// display/retain the initial chapter instead of the real manuscript.
+initializePersistentState().catch(()=>{
+  try{
+    document.body.classList.toggle("night",state.night===true);
+    ensureAppBaseHistory();
+    load();
+    updateAIStatus();
+    restoreAppPanel();
+  }catch(e){}
+});
 
 window.addEventListener("pagehide",()=>{try{persistState()}catch(e){}});
 window.addEventListener("beforeunload",()=>{try{persistState()}catch(e){}});
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=44").catch(()=>{});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=45").catch(()=>{});
 </script>
 </body>
 </html>
