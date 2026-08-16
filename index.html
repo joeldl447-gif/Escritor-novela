@@ -385,11 +385,9 @@ body.night #appMenu .menu-title{border-color:#333}
 <header>
   <button class="icon" onclick="toggleAppMenu()">☰</button>
   <input id="title" value="Mi novela" aria-label="Nombre del proyecto">
-  <button class="icon" id="manualSaveBtn" title="Guardar novela">💾</button>
   <button class="icon" onclick="toggleNotes()">📝</button><button class="icon" onclick="toggleAISettings()" title="Configurar IA">⚙️</button>
   <input id="wordFile" type="file" accept=".docx" hidden onchange="importDocx(this.files[0])">
 </header>
-<div id="saveStatus" style="text-align:center;font-size:12px;color:#777;padding:2px 8px">Guardado automático: desactivado</div>
 
 <div id="appMenuBackdrop" onclick="closeAppMenu()"></div>
 <nav id="appMenu">
@@ -430,9 +428,9 @@ body.night #appMenu .menu-title{border-color:#333}
 
     <div class="library-card">
       <h3>🛡️ Copias automáticas</h3>
-      <p class="muted">El guardado automático está desactivado. Las modificaciones del manuscrito se conservan en memoria hasta que pulses 💾 Guardar novela.</p>
+      <p class="muted">La aplicación guarda automáticamente versiones locales cuando hay cambios importantes. No se suben a Internet.</p>
       <div id="autoBackupStatus" class="muted">Cargando…</div>
-      <button onclick="save();exportFullBackup()">💾 Guardar y crear copia</button>
+      <button onclick="createAutoBackup(true)">💾 Crear copia ahora</button>
     </div>
 
     <div class="library-card">
@@ -737,229 +735,115 @@ body.night #appMenu .menu-title{border-color:#333}
 </main>
 
 <script>
-const KEY="escritor_novela_v1";
-const BACKUP_KEY="escritor_novela_backup_v1";
-const NIGHT_KEY="escritor_night";
-const DB_NAME="EscritorPWAPersistence";
-const APP_VERSION="47";
-const DB_STORE="snapshots";
-
-const RESET_MARKER="escritor_v47_reset_done";
-async function resetAllStoredDataOnce(){
-  let already=false;
-  try{already=localStorage.getItem(RESET_MARKER)==="1";}catch(e){}
-  if(already)return;
-  try{localStorage.clear();}catch(e){}
-  try{
-    if(window.indexedDB){
-      await new Promise(resolve=>{
-        const req=indexedDB.deleteDatabase(DB_NAME);
-        req.onsuccess=req.onerror=req.onblocked=()=>resolve();
-      });
-    }
-  }catch(e){}
-  try{localStorage.setItem(RESET_MARKER,"1");}catch(e){}
-}
+const KEY="escritor_v49_meta";
+const CHAPTER_PREFIX="escritor_v49_chapter_";
+const NIGHT_KEY="escritor_v49_night";
+const APP_VERSION="49";
 
 function defaultState(){return {
  title:"Mi novela",current:0,
  chapters:[{name:"Capítulo 1",html:"<p>Empezá a escribir acá...</p>",notes:{}}],
- characters:[],places:[],history:{},night:false
+ characters:[],places:[],history:{},night:false,timeline:[],mapPoints:[],mapStreets:[],mapRoutes:[],editorZoom:1
 }}
-function parseState(raw){
-  try{
-    const parsed=JSON.parse(raw);
-    if(parsed&&Array.isArray(parsed.chapters)&&parsed.chapters.length)return parsed;
-  }catch(e){}
-  return null;
-}
-function readStoredState(){
-  const candidates=[];
-  try{
-    const a=parseState(localStorage.getItem(KEY)||"");
-    const b=parseState(localStorage.getItem(BACKUP_KEY)||"");
-    if(a)candidates.push(a);
-    if(b)candidates.push(b);
-  }catch(e){}
-  if(!candidates.length)return defaultState();
-  // Prefer the newest complete state. Legacy V41-V43 states have no timestamp,
-  // so when timestamps are absent the first valid copy is retained.
-  candidates.sort((a,b)=>(Number(b._savedAt)||0)-(Number(a._savedAt)||0));
-  return candidates[0];
-}
-let state=defaultState();
-state.characters=state.characters||[];
-state.places=state.places||[];
-state.history=state.history||{};
-state.timeline=Array.isArray(state.timeline)?state.timeline:[];
-ensureMapState();
-state.editorZoom=Number(state.editorZoom)||1;
-state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
-let selected=null;
-let editorPinch=null;
+function safeParse(raw){try{return JSON.parse(raw)}catch(e){return null}}
 
+/*
+  V49: almacenamiento deliberadamente simple y síncrono.
+  Cada capítulo se guarda en una entrada independiente de localStorage.
+  Así, editar un capítulo no obliga al navegador a reescribir toda la novela
+  ni permite que una copia vieja de IndexedDB reemplace el manuscrito actual.
+*/
+function metaFromState(){
+  return {version:APP_VERSION,title:state.title,current:state.current,characters:state.characters||[],places:state.places||[],timeline:state.timeline||[],mapPoints:state.mapPoints||[],mapStreets:state.mapStreets||[],mapRoutes:state.mapRoutes||[],editorZoom:state.editorZoom||1,night:state.night===true,savedAt:Date.now(),chapterCount:state.chapters.length};
+}
+function chapterKey(i){return CHAPTER_PREFIX+String(i)}
+function loadV49(){
+  const raw=localStorage.getItem(KEY);
+  const meta=safeParse(raw);
+  if(!meta || meta.version!==APP_VERSION || !Number.isFinite(meta.chapterCount) || meta.chapterCount<1) return null;
+  const chapters=[];
+  for(let i=0;i<meta.chapterCount;i++){
+    const c=safeParse(localStorage.getItem(chapterKey(i))||"");
+    if(!c || typeof c.html!=="string" || typeof c.name!=="string") return null;
+    chapters.push({name:c.name,html:c.html,notes:c.notes||{}});
+  }
+  return {...defaultState(),...meta,chapters,history:{}};
+}
+function stateHasUsefulWork(s){
+  if(!s||!Array.isArray(s.chapters)||!s.chapters.length)return false;
+  if(s.chapters.length>1)return true;
+  const c=s.chapters[0];
+  return !!(c && (String(c.html||"").replace(/<[^>]*>/g,"").trim()!=="Empezá a escribir acá..." || String(c.name||"")!=="Capítulo 1"));
+}
+function clearLegacyStorageOnce(){
+  if(localStorage.getItem("escritor_v49_initialized")==="1")return;
+  const oldKeys=["escritor_novela_v1","escritor_novela_backup_v1","escritor_night","escritor_novela_v2","escritor_auto_backups_v1"];
+  oldKeys.forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});
+  try{localStorage.setItem("escritor_v49_initialized","1")}catch(e){}
+}
+clearLegacyStorageOnce();
+let state=loadV48()||defaultState();
+state.characters=state.characters||[];state.places=state.places||[];state.history={};state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+state.mapPoints=Array.isArray(state.mapPoints)?state.mapPoints:[];state.mapStreets=Array.isArray(state.mapStreets)?state.mapStreets:[];state.mapRoutes=Array.isArray(state.mapRoutes)?state.mapRoutes:[];
+state.editorZoom=Math.max(.6,Math.min(1.5,Number(state.editorZoom)||1));
+let selected=null;let editorPinch=null;
 const $=id=>document.getElementById(id);
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function textOf(h){let d=document.createElement("div");d.innerHTML=h;return d.innerText.trim()}
 
-let persistenceQueue=Promise.resolve();
+function save(){
+  // Synchronize the live editor DOM back into the in-memory state BEFORE
+  // persisting. The previous version called save() throughout the app but
+  // had no save() implementation, so typing only changed the DOM and the
+  // stored chapter remained unchanged.
+  try{
+    if($("editor") && state.chapters[state.current]){
+      state.chapters[state.current].html=$("editor").innerHTML;
+    }
+    if($("title")) state.title=$("title").value;
+    return persistState();
+  }catch(e){
+    console.error("Error sincronizando y guardando la novela",e);
+    return false;
+  }
+}
 
 function persistState(){
-  // The manuscript itself is the durable state. Editor history is deliberately
-  // excluded from the main snapshot because saving 30 full HTML copies per
-  // chapter can exhaust browser storage and make saves silently fail.
+  state.current=Math.max(0,Math.min(state.current,state.chapters.length-1));
   state._savedAt=Date.now();
-  const durable={...state, history:{}};
-  const raw=JSON.stringify(durable);
-
-  try{localStorage.setItem(KEY,raw);localStorage.setItem(BACKUP_KEY,raw)}catch(e){
-    // If old data filled localStorage, remove only disposable/legacy data and retry.
-    try{localStorage.removeItem(AUTO_BACKUP_KEY);localStorage.removeItem("escritor_auto_backups_v1")}catch(_e){}
-    try{localStorage.setItem(KEY,raw);localStorage.setItem(BACKUP_KEY,raw)}catch(_e){}
-  }
-
-  // Keep an independent copy in IndexedDB. Queue writes so an older async
-  // write can never overtake a newer one.
-  const queuedRaw=raw;
-  const queuedSavedAt=state._savedAt;
-  persistenceQueue=persistenceQueue.then(()=>persistStateIndexedDB(queuedRaw,queuedSavedAt)).catch(()=>{});
-}
-
-function openPersistenceDB(){
-  return new Promise((resolve,reject)=>{
-    if(!window.indexedDB)return reject(new Error("IndexedDB unavailable"));
-    const req=indexedDB.open(DB_NAME,2);
-    req.onupgradeneeded=()=>{
-      const db=req.result;
-      if(!db.objectStoreNames.contains(DB_STORE))db.createObjectStore(DB_STORE);
-    };
-    req.onsuccess=()=>resolve(req.result);
-    req.onerror=()=>reject(req.error);
-  });
-}
-
-async function persistStateIndexedDB(raw,savedAt){
-  const db=await openPersistenceDB();
+  const meta=metaFromState();
   try{
-    await new Promise((resolve,reject)=>{
-      const tx=db.transaction(DB_STORE,"readwrite");
-      tx.objectStore(DB_STORE).put({
-        raw,
-        savedAt:Number(savedAt)||Date.now()
-      },"latest");
-      tx.oncomplete=resolve;
-      tx.onerror=()=>reject(tx.error);
-      tx.onabort=()=>reject(tx.error||new Error("IndexedDB transaction aborted"));
-    });
-  }finally{db.close()}
-}
-
-async function readIndexedDBState(){
-  const db=await openPersistenceDB();
-  try{
-    const value=await new Promise((resolve,reject)=>{
-      const tx=db.transaction(DB_STORE,"readonly");
-      const req=tx.objectStore(DB_STORE).get("latest");
-      req.onsuccess=()=>resolve(req.result||null);
-      req.onerror=()=>reject(req.error);
-    });
-    const raw=typeof value==="string"?value:value?.raw;
-    const parsed=parseState(raw||"");
-    return parsed;
-  }finally{db.close()}
-}
-
-async function recoverStateIndexedDB(){
-  try{
-    const parsed=await readIndexedDBState();
-    if(!parsed)return false;
-    state=parsed;
-    state.characters=state.characters||[];
-    state.places=state.places||[];
-    state.history={};
-    state.timeline=Array.isArray(state.timeline)?state.timeline:[];
-    try{persistState()}catch(e){}
+    // Write chapters first. Metadata is written LAST, so a partially completed
+    // save cannot advertise chapters that do not exist.
+    for(let i=0;i<state.chapters.length;i++){
+      const c=state.chapters[i]||{name:"Capítulo "+(i+1),html:"<p></p>",notes:{}};
+      localStorage.setItem(chapterKey(i),JSON.stringify({name:String(c.name||("Capítulo "+(i+1))),html:String(c.html||""),notes:c.notes||{}}));
+    }
+    // Remove chapter entries left over after deleting chapters.
+    const oldCount=Number(safeParse(localStorage.getItem(KEY)||"{}")?.chapterCount)||state.chapters.length;
+    for(let i=state.chapters.length;i<oldCount;i++)localStorage.removeItem(chapterKey(i));
+    localStorage.setItem(KEY,JSON.stringify(meta));
+    localStorage.setItem(NIGHT_KEY,state.night===true?"1":"0");
     return true;
-  }catch(e){return false}
+  }catch(e){
+    console.error("No se pudo guardar la novela",e);
+    try{alert("No se pudo guardar la novela. El navegador rechazó el almacenamiento. No cierres esta página todavía.")}catch(_e){}
+    return false;
+  }
 }
 
-async function initializePersistentState(){
-  // Delete the old quota-heavy automatic backup collection. It duplicated
-  // the entire manuscript up to 12 times in localStorage.
-  try{localStorage.removeItem(AUTO_BACKUP_KEY)}catch(e){}
-
-  const localCandidates=[];
-  try{
-    const a=parseState(localStorage.getItem(KEY)||"");
-    const b=parseState(localStorage.getItem(BACKUP_KEY)||"");
-    if(a)localCandidates.push(a);
-    if(b)localCandidates.push(b);
-  }catch(e){}
-
-  let dbState=null;
-  try{dbState=await readIndexedDBState()}catch(e){}
-
-  const candidates=[...localCandidates];
-  if(dbState)candidates.push(dbState);
-
-  const isStarterOnly=(s)=>{
-    if(!s||!Array.isArray(s.chapters)||s.chapters.length!==1)return false;
-    const c=s.chapters[0]||{};
-    return String(c.name||"").trim()==="Capítulo 1" &&
-      /Empezá a escribir acá/i.test(String(c.html||""));
-  };
-
-  if(candidates.length){
-    // A previous failed boot could have written the empty starter state with
-    // a newer timestamp than the real manuscript. Never let that starter
-    // snapshot win when another stored snapshot contains actual work.
-    const realCandidates=candidates.filter(s=>!isStarterOnly(s));
-    const pool=realCandidates.length?realCandidates:candidates;
-    pool.sort((a,b)=>(Number(b._savedAt)||0)-(Number(a._savedAt)||0));
-    state=pool[0];
-  }else{
-    state=defaultState();
-  }
-
-  state.characters=state.characters||[];
-  state.places=state.places||[];
-  state.history={};
-  state.timeline=Array.isArray(state.timeline)?state.timeline:[];
-  state.editorZoom=Number(state.editorZoom)||1;
-  state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
-
-  // Apply the theme only after the persistent state has been selected.
+function initializePersistentState(){
+  const saved=loadV49();
+  if(saved)state=saved;
+  state.characters=state.characters||[];state.places=state.places||[];state.history={};state.timeline=Array.isArray(state.timeline)?state.timeline:[];
+  state.mapPoints=Array.isArray(state.mapPoints)?state.mapPoints:[];state.mapStreets=Array.isArray(state.mapStreets)?state.mapStreets:[];state.mapRoutes=Array.isArray(state.mapRoutes)?state.mapRoutes:[];
+  state.editorZoom=Math.max(.6,Math.min(1.5,Number(state.editorZoom)||1));
   let night=state.night===true;
-  // Legacy theme key is only used when the durable state has never stored a theme.
-  if(typeof state.night!=="boolean"){
-    try{night=localStorage.getItem(NIGHT_KEY)==="1";}catch(e){}
-  }
+  if(typeof state.night!=="boolean")night=localStorage.getItem(NIGHT_KEY)==="1";
   state.night=night;
   document.body.classList.toggle("night",night);
-
-  ensureAppBaseHistory();
-  load();
-  updateAIStatus();
-  restoreAppPanel();
+  ensureAppBaseHistory();load();updateAIStatus();restoreAppPanel();
 }
-function save(){
-  state.title=$("title").value;
-  state.chapters[state.current].html=$("editor").innerHTML;
-  state.history={};
-  persistState();
-  renderChapters();stats();
-  showSaveStatus("Guardado manualmente");
-}
-function syncEditorToMemory(){
-  state.title=$("title").value;
-  if(state.chapters[state.current])state.chapters[state.current].html=$("editor").innerHTML;
-}
-function showSaveStatus(msg){
-  const el=$("saveStatus");
-  if(el){el.textContent=msg;clearTimeout(showSaveStatus.t);showSaveStatus.t=setTimeout(()=>el.textContent="Guardado automático: desactivado",2200);}
-}
-
-
 function load(){
   $("title").value=state.title;
   $("editor").innerHTML=state.chapters[state.current].html;
@@ -997,7 +881,7 @@ function applyEditorZoom(){
 function setEditorZoom(z){
   state.editorZoom=Math.max(.6,Math.min(1.5,Math.round(z*100)/100));
   applyEditorZoom();
-  syncEditorToMemory();
+  save();
 }
 function changeEditorZoom(delta){
   setEditorZoom((state.editorZoom||1)+delta);
@@ -1006,7 +890,7 @@ $("editorZoomOut").addEventListener("click",()=>changeEditorZoom(-.1));
 $("editorZoomIn").addEventListener("click",()=>changeEditorZoom(.1));
 $("editorZoomReset").addEventListener("click",()=>setEditorZoom(1));
 
-$("editor").addEventListener("input",()=>{syncEditorToMemory();bindParagraphs();updateSelectedParagraphFromCaret();stats()});
+$("editor").addEventListener("input",()=>{bindParagraphs();updateSelectedParagraphFromCaret();save()});
 
 function updateSelectedParagraphFromCaret(){
   const sel=window.getSelection?.();
@@ -1023,7 +907,7 @@ $("editor").addEventListener("keyup",updateSelectedParagraphFromCaret);
 $("editor").addEventListener("mouseup",updateSelectedParagraphFromCaret);
 
 
-$("title").addEventListener("input",()=>{state.title=$("title").value;});
+$("title").addEventListener("input",save);
 
 $("editor").addEventListener("touchstart",e=>{
   if(e.touches.length===2){
@@ -1053,8 +937,8 @@ $("editor").addEventListener("touchend",()=>{
   editorPinch=null;
 });
 
-function cmd(x){document.execCommand(x,false,null);$("editor").focus();syncEditorToMemory();stats()}
-function insertParagraph(){document.execCommand("insertParagraph");syncEditorToMemory();bindParagraphs();stats()}
+function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
+function insertParagraph(){document.execCommand("insertParagraph");save();bindParagraphs()}
 function newChapter(){save();state.chapters.push({name:"Capítulo "+(state.chapters.length+1),html:"<p></p>",notes:{}});state.current=state.chapters.length-1;selected=null;persistState();load()}
 function deleteChapter(i){
   const c=state.chapters[i];
@@ -1075,7 +959,8 @@ function applyNightMode(on){
   const enabled=!!on;
   document.body.classList.toggle("night",enabled);
   state.night=enabled;
-  state.night=enabled;
+  try{localStorage.setItem(NIGHT_KEY,enabled?"1":"0");}catch(e){}
+  persistState();
 }
 function toggleNight(){applyNightMode(!document.body.classList.contains("night"))}
 function toggleFocus(){document.body.classList.toggle("focus-mode")}
@@ -3187,20 +3072,13 @@ function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((
 // IMPORTANT: do not render the editor from the starter state before the
 // persistent stores have been checked. That race was allowing a reload to
 // display/retain the initial chapter instead of the real manuscript.
-resetAllStoredDataOnce().then(()=>initializePersistentState()).catch(()=>{
-  try{
-    document.body.classList.toggle("night",state.night===true);
-    ensureAppBaseHistory();
-    load();
-    updateAIStatus();
-    restoreAppPanel();
-  }catch(e){}
-});
+initializePersistentState();
 
-
-$("manualSaveBtn")?.addEventListener("click",save);
-document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){e.preventDefault();save();}});
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=47").catch(()=>{});
+// Último salvaguardado: si el navegador cierra la página mientras se estaba
+// editando, persistimos una vez más. El guardado normal ya ocurre en cada cambio.
+window.addEventListener("pagehide",()=>{try{save()}catch(e){}});
+window.addEventListener("beforeunload",()=>{try{save()}catch(e){}});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=49").catch(()=>{});
 </script>
 </body>
 </html>
