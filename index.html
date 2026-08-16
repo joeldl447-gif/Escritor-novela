@@ -150,6 +150,7 @@ body.night #appMenu .menu-title{border-color:#333}
 
 .analysis-click{cursor:pointer}.analysis-click:hover{text-decoration:underline}
 .analysis-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.character-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.character-edit-grid label,#characterEditPanel label{display:flex;flex-direction:column;gap:5px;margin-top:10px}.character-edit-grid input,.character-edit-grid select,#characterEditPanel textarea{box-sizing:border-box;width:100%}.character-edit-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}@media(max-width:600px){.character-edit-grid{grid-template-columns:1fr}}
 .language-finding-focus{outline:3px solid #e2a83b;outline-offset:4px;border-radius:6px;transition:outline-color .2s}
 .language-finding{border-top:1px solid #ddd;padding:12px 0}.language-finding:first-child{border-top:0}.language-finding .lf-head{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.language-finding .lf-type{font-size:11px;padding:4px 7px;border-radius:12px;background:#e7e9ee}.language-finding .lf-location{font-size:12px;color:#777;margin-top:4px}.language-finding .lf-text{margin:8px 0;padding:9px;border-radius:8px;background:#f0f0f0}.language-finding .lf-suggestion{font-weight:600}.language-finding button{margin-top:7px}.night .language-finding{border-color:#333}.night .language-finding .lf-type{background:#333}.night .language-finding .lf-text{background:#303030}
 
@@ -669,6 +670,24 @@ body.night #appMenu .menu-title{border-color:#333}
     </div>
   </div>
 </section>
+<section id="characterEditPanel" class="overlayPanel">
+<div class="panelInner">
+<div style="display:flex;gap:8px;align-items:center"><button class="icon" onclick="closeCharacterEdit()">←</button><h2 id="characterEditTitle" style="flex:1">👤 Personaje</h2></div>
+<div class="character-edit-grid">
+<label>Nombre<input id="charName" type="text"></label>
+<label>Apodos / alias<input id="charAliases" type="text" placeholder="Separados por comas"></label>
+<label>Edad<input id="charAge" type="text"></label>
+<label>Ocupación<input id="charOccupation" type="text"></label>
+<label>Origen<input id="charOrigin" type="text"></label>
+<label>Estado<select id="charStatus"><option value="desconocido">Desconocido</option><option value="vivo">Vivo</option><option value="muerto">Muerto</option><option value="desaparecido">Desaparecido</option><option value="herido">Herido</option></select></label>
+</div>
+<label>Descripción física<textarea id="charAppearance" rows="4"></textarea></label>
+<label>Personalidad<textarea id="charPersonality" rows="4"></textarea></label>
+<label>Historia / antecedentes<textarea id="charHistory" rows="5"></textarea></label>
+<label>Objetivos<textarea id="charGoals" rows="3"></textarea></label>
+<label>Miedos / debilidades<textarea id="charFears" rows="3"></textarea></label>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button onclick="confirmSaveCharacter()">💾 Guardar cambios</button><button onclick="confirmDeleteCharacter()">🗑️ Eliminar ficha</button></div>
+</div></section>
 <section id="characterPanel" class="overlayPanel">
   <div class="panelInner">
     <div style="display:flex;gap:8px;align-items:center">
@@ -2738,6 +2757,7 @@ function bindMapUI(){
 function openCharacterProfiles(){
   $("characterPanel").classList.add("open");
   try{
+    state.characters=(state.characters||[]).map(normalizeCharacterRecord);
     renderCharacterProfiles();
   }catch(e){
     console.error("Error en fichas de personajes:",e);
@@ -2746,6 +2766,66 @@ function openCharacterProfiles(){
   }
 }
 function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
+
+
+let characterEditingIndex=null;
+
+function normalizeCharacterRecord(c){
+  c=c||{};
+  return {
+    name:String(c.name||""),
+    desc:String(c.desc||""),
+    aliases:Array.isArray(c.aliases)?c.aliases:String(c.aliases||"").split(",").map(x=>x.trim()).filter(Boolean),
+    age:String(c.age||""),
+    occupation:String(c.occupation||""),
+    origin:String(c.origin||""),
+    status:String(c.status||"desconocido"),
+    appearance:String(c.appearance||""),
+    personality:String(c.personality||""),
+    history:String(c.history||""),
+    goals:String(c.goals||""),
+    fears:String(c.fears||"")
+  };
+}
+function openCharacterEdit(index){
+  if(index<0)return;
+  const c=normalizeCharacterRecord(state.characters[index]);
+  characterEditingIndex=index;
+  $("characterEditTitle").textContent="👤 "+c.name;
+  $("charName").value=c.name;$("charAliases").value=c.aliases.join(", ");
+  $("charAge").value=c.age;$("charOccupation").value=c.occupation;$("charOrigin").value=c.origin;
+  $("charStatus").value=c.status;$("charAppearance").value=c.appearance;$("charPersonality").value=c.personality;
+  $("charHistory").value=c.history;$("charGoals").value=c.goals;$("charFears").value=c.fears;
+  $("characterEditPanel").classList.add("open");
+}
+function closeCharacterEdit(){$("characterEditPanel").classList.remove("open");characterEditingIndex=null}
+function collectCharacterForm(){
+  return normalizeCharacterRecord({
+    name:$("charName").value.trim(),desc:$("charAppearance").value.trim(),
+    aliases:$("charAliases").value.split(",").map(x=>x.trim()).filter(Boolean),
+    age:$("charAge").value.trim(),occupation:$("charOccupation").value.trim(),origin:$("charOrigin").value.trim(),
+    status:$("charStatus").value,appearance:$("charAppearance").value.trim(),personality:$("charPersonality").value.trim(),
+    history:$("charHistory").value.trim(),goals:$("charGoals").value.trim(),fears:$("charFears").value.trim()
+  });
+}
+function confirmSaveCharacter(){
+  const n=collectCharacterForm();
+  if(!n.name){alert("El personaje necesita un nombre.");return}
+  const old=characterEditingIndex===null?null:state.characters[characterEditingIndex];
+  const changed=JSON.stringify(normalizeCharacterRecord(old))!==JSON.stringify(n);
+  if(!changed){closeCharacterEdit();return}
+  if(!confirm("¿Guardar los cambios de esta ficha?\n\nPersonaje: "+n.name+"\n\nNo se modificará el texto de la novela."))return;
+  state.characters[characterEditingIndex]=n;
+  save();renderCharacterProfiles();closeCharacterEdit();
+}
+function confirmDeleteCharacter(){
+  if(characterEditingIndex===null)return;
+  const c=state.characters[characterEditingIndex];
+  if(!c)return;
+  if(!confirm("¿Eliminar la ficha de «"+c.name+"»?\n\nLas apariciones y el texto de la novela NO se eliminarán."))return;
+  state.characters.splice(characterEditingIndex,1);
+  save();renderCharacterProfiles();closeCharacterEdit();
+}
 
 function characterProfileData(name,key){
   const appearances=[];
@@ -3032,6 +3112,7 @@ function renderCharacterProfiles(){
 
     d.innerHTML=`
       <h3>👤 ${esc(name)}</h3>
+      <div class="character-edit-actions"><button type="button" onclick="openCharacterEdit(${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)})">✏️ Editar ficha</button></div>
       <div class="character-profile-meta">
         ${data.appearances.length} aparición${data.appearances.length===1?"":"es"} · ${data.chapters.length} capítulo${data.chapters.length===1?"":"s"}
         · ${known?.desc?esc(known.desc):"Detectado automáticamente"}
