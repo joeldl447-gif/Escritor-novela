@@ -1,5 +1,7 @@
-Escritor PWA V49 — corrección del guardado automático
+Escritor PWA V52
 
-La causa real encontrada en V48 era que el código llamaba a save() en todos los lugares importantes, pero V48 NO tenía ninguna función save(). Por lo tanto, las ediciones del editor quedaban solamente en el DOM y nunca se copiaban a state.chapters antes de persistir.
+Base: V41, no V51. Se volvió al sistema de estado original porque las versiones V42-V51 añadieron capas de persistencia que introdujeron fallos.
 
-V49 agrega save(): sincroniza editor.innerHTML y title.value con state y luego ejecuta persistState(). Mantiene guardado automático, capítulos separados, modo oscuro y navegación interna. También usa claves V49 y un Service Worker V49 para evitar reutilizar el estado/caché de V48.
+Corrección principal: el guardado automático ya no persiste historial ni copias automáticas completas. El historial local y las 12 copias automáticas eran capaces de llenar localStorage y hacer fallar el guardado. V52 elimina esas copias y guarda únicamente el estado actual de la novela.
+
+También se mantiene el tema oscuro y se persiste la pantalla interna abierta.
