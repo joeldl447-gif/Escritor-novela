@@ -739,7 +739,7 @@ const KEY="escritor_novela_v1";
 const BACKUP_KEY="escritor_novela_backup_v1";
 const NIGHT_KEY="escritor_night";
 const DB_NAME="EscritorPWAPersistence";
-const APP_VERSION="45";
+const APP_VERSION="46";
 const DB_STORE="snapshots";
 
 function defaultState(){return {
@@ -786,25 +786,24 @@ function textOf(h){let d=document.createElement("div");d.innerHTML=h;return d.in
 let persistenceQueue=Promise.resolve();
 
 function persistState(){
+  // The manuscript itself is the durable state. Editor history is deliberately
+  // excluded from the main snapshot because saving 30 full HTML copies per
+  // chapter can exhaust browser storage and make saves silently fail.
   state._savedAt=Date.now();
-  const raw=JSON.stringify(state);
+  const durable={...state, history:{}};
+  const raw=JSON.stringify(durable);
 
-  // IndexedDB is the durable source of truth. localStorage is only a
-  // synchronous fallback and must never be allowed to block a save.
-  persistenceQueue=persistenceQueue.then(()=>persistStateIndexedDB(raw)).catch(()=>{});
-
-  // Keep only a small fallback copy in localStorage. Large automatic backups
-  // and chapter histories can exceed the browser's localStorage quota.
-  try{
-    localStorage.setItem(KEY,raw);
-  }catch(e){
-    // If an old automatic-backup collection filled the quota, remove it and
-    // retry once. The IndexedDB save above remains authoritative.
-    try{
-      localStorage.removeItem(AUTO_BACKUP_KEY);
-      localStorage.setItem(KEY,raw);
-    }catch(e2){}
+  try{localStorage.setItem(KEY,raw);localStorage.setItem(BACKUP_KEY,raw)}catch(e){
+    // If old data filled localStorage, remove only disposable/legacy data and retry.
+    try{localStorage.removeItem(AUTO_BACKUP_KEY);localStorage.removeItem("escritor_auto_backups_v1")}catch(_e){}
+    try{localStorage.setItem(KEY,raw);localStorage.setItem(BACKUP_KEY,raw)}catch(_e){}
   }
+
+  // Keep an independent copy in IndexedDB. Queue writes so an older async
+  // write can never overtake a newer one.
+  const queuedRaw=raw;
+  const queuedSavedAt=state._savedAt;
+  persistenceQueue=persistenceQueue.then(()=>persistStateIndexedDB(queuedRaw,queuedSavedAt)).catch(()=>{});
 }
 
 function openPersistenceDB(){
@@ -820,14 +819,14 @@ function openPersistenceDB(){
   });
 }
 
-async function persistStateIndexedDB(raw){
+async function persistStateIndexedDB(raw,savedAt){
   const db=await openPersistenceDB();
   try{
     await new Promise((resolve,reject)=>{
       const tx=db.transaction(DB_STORE,"readwrite");
       tx.objectStore(DB_STORE).put({
         raw,
-        savedAt:Number(state._savedAt)||Date.now()
+        savedAt:Number(savedAt)||Date.now()
       },"latest");
       tx.oncomplete=resolve;
       tx.onerror=()=>reject(tx.error);
@@ -858,9 +857,9 @@ async function recoverStateIndexedDB(){
     state=parsed;
     state.characters=state.characters||[];
     state.places=state.places||[];
-    state.history=state.history||{};
+    state.history={};
     state.timeline=Array.isArray(state.timeline)?state.timeline:[];
-    try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+    try{persistState()}catch(e){}
     return true;
   }catch(e){return false}
 }
@@ -905,17 +904,17 @@ async function initializePersistentState(){
 
   state.characters=state.characters||[];
   state.places=state.places||[];
-  state.history=state.history||{};
+  state.history={};
   state.timeline=Array.isArray(state.timeline)?state.timeline:[];
   state.editorZoom=Number(state.editorZoom)||1;
   state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
 
   // Apply the theme only after the persistent state has been selected.
-  let night=!!state.night;
-  try{
-    const savedNight=localStorage.getItem(NIGHT_KEY);
-    if(savedNight!==null)night=savedNight==="1";
-  }catch(e){}
+  let night=state.night===true;
+  // Legacy theme key is only used when the durable state has never stored a theme.
+  if(typeof state.night!=="boolean"){
+    try{night=localStorage.getItem(NIGHT_KEY)==="1";}catch(e){}
+  }
   state.night=night;
   document.body.classList.toggle("night",night);
 
@@ -934,7 +933,6 @@ function save(){
     if(h.length>30)h.shift();
   }
   persistState();
-  createAutoBackup(false);
   renderChapters();stats();
 }
 
@@ -2961,11 +2959,11 @@ async function importFullBackup(file){
     if(data?.format!=="escritor-novela-backup" || !data.state?.chapters)
       throw new Error("El archivo no parece una copia de Escritor.");
     if(!confirm("Esto reemplazará la novela que está abierta por la copia seleccionada.\\n\\n¿Querés continuar?"))return;
-    localStorage.setItem(KEY,JSON.stringify(data.state));
+    persistState();
     if(data.analysis!==undefined && data.analysis!==null)localStorage.setItem("escritor_auto_analysis_v1",data.analysis);
     if(data.ignoredAnalysis!==undefined && data.ignoredAnalysis!==null)localStorage.setItem("escritor_analysis_ignored",data.ignoredAnalysis);
     state=data.state;
-    state.history=state.history||{};
+    state.history={};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
 ensureMapState();
     state.characters=state.characters||[];
@@ -3178,7 +3176,7 @@ initializePersistentState().catch(()=>{
 
 window.addEventListener("pagehide",()=>{try{persistState()}catch(e){}});
 window.addEventListener("beforeunload",()=>{try{persistState()}catch(e){}});
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=45").catch(()=>{});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=46").catch(()=>{});
 </script>
 </body>
 </html>
