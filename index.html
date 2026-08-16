@@ -735,10 +735,10 @@ body.night #appMenu .menu-title{border-color:#333}
 </main>
 
 <script>
-const KEY="escritor_v50_meta";
-const CHAPTER_PREFIX="escritor_v50_chapter_";
-const NIGHT_KEY="escritor_v50_night";
-const APP_VERSION="50";
+const KEY="escritor_v51_meta";
+const CHAPTER_PREFIX="escritor_v51_chapter_";
+const NIGHT_KEY="escritor_v51_night";
+const APP_VERSION="51";
 
 function defaultState(){return {
  title:"Mi novela",current:0,
@@ -758,16 +758,25 @@ function metaFromState(){
 }
 function chapterKey(i){return CHAPTER_PREFIX+String(i)}
 function loadV50(){
-  const raw=localStorage.getItem(KEY);
-  const meta=safeParse(raw);
-  if(!meta || meta.version!==APP_VERSION || !Number.isFinite(meta.chapterCount) || meta.chapterCount<1) return null;
-  const chapters=[];
-  for(let i=0;i<meta.chapterCount;i++){
-    const c=safeParse(localStorage.getItem(chapterKey(i))||"");
-    if(!c || typeof c.html!=="string" || typeof c.name!=="string") return null;
-    chapters.push({name:c.name,html:c.html,notes:c.notes||{}});
-  }
-  return {...defaultState(),...meta,chapters,history:{}};
+  try{
+    const meta=safeParse(localStorage.getItem(KEY)||"")||{};
+    const count=Math.max(0,Number(meta.chapterCount)||0);
+    const chapters=[];
+    const seen=new Set();
+    for(let i=0;i<count;i++){
+      const c=safeParse(localStorage.getItem(chapterKey(i))||"");
+      if(c && typeof c.html==="string"){chapters.push({name:typeof c.name==="string"&&c.name?c.name:"Capítulo "+(i+1),html:c.html,notes:c.notes||{}});seen.add(i);}
+    }
+    for(let i=0;i<1000;i++){
+      if(seen.has(i))continue;
+      const raw=localStorage.getItem(chapterKey(i));
+      if(raw===null)continue;
+      const c=safeParse(raw);
+      if(c && typeof c.html==="string") chapters.push({name:typeof c.name==="string"&&c.name?c.name:"Capítulo "+(i+1),html:c.html,notes:c.notes||{}});
+    }
+    if(!chapters.length)return null;
+    return {...defaultState(),...meta,chapters:chapters,history:{}};
+  }catch(e){console.error("load",e);return null}
 }
 function stateHasUsefulWork(s){
   if(!s||!Array.isArray(s.chapters)||!s.chapters.length)return false;
@@ -776,7 +785,7 @@ function stateHasUsefulWork(s){
   return !!(c && (String(c.html||"").replace(/<[^>]*>/g,"").trim()!=="Empezá a escribir acá..." || String(c.name||"")!=="Capítulo 1"));
 }
 function migrateV49Once(){
-  if(localStorage.getItem("escritor_v50_migrated")==="1")return;
+  if(localStorage.getItem("escritor_v51_migrated")==="1")return;
   try{
     const raw=localStorage.getItem("escritor_v49_meta");
     const meta=safeParse(raw);
@@ -794,15 +803,15 @@ function migrateV49Once(){
       }
     }
   }catch(e){}
-  try{localStorage.setItem("escritor_v50_migrated","1")}catch(e){}
+  try{localStorage.setItem("escritor_v51_migrated","1")}catch(e){}
 }
 let stateForMigration=null;
 
 function clearLegacyStorageOnce(){
-  if(localStorage.getItem("escritor_v49_initialized")==="1")return;
+  if(localStorage.getItem("escritor_v51_legacy_initialized")==="1")return;
   const oldKeys=["escritor_novela_v1","escritor_novela_backup_v1","escritor_night","escritor_novela_v2","escritor_auto_backups_v1"];
   oldKeys.forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});
-  try{localStorage.setItem("escritor_v49_initialized","1")}catch(e){}
+  try{localStorage.setItem("escritor_v51_legacy_initialized","1")}catch(e){}
 }
 clearLegacyStorageOnce();
 migrateV49Once();
@@ -3103,7 +3112,7 @@ initializePersistentState();
 // editando, persistimos una vez más. El guardado normal ya ocurre en cada cambio.
 window.addEventListener("pagehide",()=>{try{save()}catch(e){}});
 window.addEventListener("beforeunload",()=>{try{save()}catch(e){}});
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=50").catch(()=>{});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=51").catch(()=>{});
 </script>
 </body>
 </html>

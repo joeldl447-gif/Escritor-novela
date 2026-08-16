@@ -2,7 +2,7 @@
   "name": "Escritor — Novela",
   "short_name": "Escritor",
   "description": "Editor de novelas con mapa de Buenos Aires, puntos, notas, calles y búsqueda.",
-  "start_url": "./index.html?v=50",
+  "start_url": "./index.html?v=51",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
