@@ -385,9 +385,11 @@ body.night #appMenu .menu-title{border-color:#333}
 <header>
   <button class="icon" onclick="toggleAppMenu()">☰</button>
   <input id="title" value="Mi novela" aria-label="Nombre del proyecto">
+  <button class="icon" id="manualSaveBtn" title="Guardar novela">💾</button>
   <button class="icon" onclick="toggleNotes()">📝</button><button class="icon" onclick="toggleAISettings()" title="Configurar IA">⚙️</button>
   <input id="wordFile" type="file" accept=".docx" hidden onchange="importDocx(this.files[0])">
 </header>
+<div id="saveStatus" style="text-align:center;font-size:12px;color:#777;padding:2px 8px">Guardado automático: desactivado</div>
 
 <div id="appMenuBackdrop" onclick="closeAppMenu()"></div>
 <nav id="appMenu">
@@ -428,9 +430,9 @@ body.night #appMenu .menu-title{border-color:#333}
 
     <div class="library-card">
       <h3>🛡️ Copias automáticas</h3>
-      <p class="muted">La aplicación guarda automáticamente versiones locales cuando hay cambios importantes. No se suben a Internet.</p>
+      <p class="muted">El guardado automático está desactivado. Las modificaciones del manuscrito se conservan en memoria hasta que pulses 💾 Guardar novela.</p>
       <div id="autoBackupStatus" class="muted">Cargando…</div>
-      <button onclick="createAutoBackup(true)">💾 Crear copia ahora</button>
+      <button onclick="save();exportFullBackup()">💾 Guardar y crear copia</button>
     </div>
 
     <div class="library-card">
@@ -739,8 +741,25 @@ const KEY="escritor_novela_v1";
 const BACKUP_KEY="escritor_novela_backup_v1";
 const NIGHT_KEY="escritor_night";
 const DB_NAME="EscritorPWAPersistence";
-const APP_VERSION="46";
+const APP_VERSION="47";
 const DB_STORE="snapshots";
+
+const RESET_MARKER="escritor_v47_reset_done";
+async function resetAllStoredDataOnce(){
+  let already=false;
+  try{already=localStorage.getItem(RESET_MARKER)==="1";}catch(e){}
+  if(already)return;
+  try{localStorage.clear();}catch(e){}
+  try{
+    if(window.indexedDB){
+      await new Promise(resolve=>{
+        const req=indexedDB.deleteDatabase(DB_NAME);
+        req.onsuccess=req.onerror=req.onblocked=()=>resolve();
+      });
+    }
+  }catch(e){}
+  try{localStorage.setItem(RESET_MARKER,"1");}catch(e){}
+}
 
 function defaultState(){return {
  title:"Mi novela",current:0,
@@ -768,7 +787,7 @@ function readStoredState(){
   candidates.sort((a,b)=>(Number(b._savedAt)||0)-(Number(a._savedAt)||0));
   return candidates[0];
 }
-let state=readStoredState();
+let state=defaultState();
 state.characters=state.characters||[];
 state.places=state.places||[];
 state.history=state.history||{};
@@ -926,15 +945,20 @@ async function initializePersistentState(){
 function save(){
   state.title=$("title").value;
   state.chapters[state.current].html=$("editor").innerHTML;
-  let h=state.history[state.current]||(state.history[state.current]=[]);
-  let snap=state.chapters[state.current].html;
-  if(!h.length||h[h.length-1]!==snap){
-    h.push(snap);
-    if(h.length>30)h.shift();
-  }
+  state.history={};
   persistState();
   renderChapters();stats();
+  showSaveStatus("Guardado manualmente");
 }
+function syncEditorToMemory(){
+  state.title=$("title").value;
+  if(state.chapters[state.current])state.chapters[state.current].html=$("editor").innerHTML;
+}
+function showSaveStatus(msg){
+  const el=$("saveStatus");
+  if(el){el.textContent=msg;clearTimeout(showSaveStatus.t);showSaveStatus.t=setTimeout(()=>el.textContent="Guardado automático: desactivado",2200);}
+}
+
 
 function load(){
   $("title").value=state.title;
@@ -973,7 +997,7 @@ function applyEditorZoom(){
 function setEditorZoom(z){
   state.editorZoom=Math.max(.6,Math.min(1.5,Math.round(z*100)/100));
   applyEditorZoom();
-  save();
+  syncEditorToMemory();
 }
 function changeEditorZoom(delta){
   setEditorZoom((state.editorZoom||1)+delta);
@@ -982,7 +1006,7 @@ $("editorZoomOut").addEventListener("click",()=>changeEditorZoom(-.1));
 $("editorZoomIn").addEventListener("click",()=>changeEditorZoom(.1));
 $("editorZoomReset").addEventListener("click",()=>setEditorZoom(1));
 
-$("editor").addEventListener("input",()=>{bindParagraphs();updateSelectedParagraphFromCaret();save()});
+$("editor").addEventListener("input",()=>{syncEditorToMemory();bindParagraphs();updateSelectedParagraphFromCaret();stats()});
 
 function updateSelectedParagraphFromCaret(){
   const sel=window.getSelection?.();
@@ -999,7 +1023,7 @@ $("editor").addEventListener("keyup",updateSelectedParagraphFromCaret);
 $("editor").addEventListener("mouseup",updateSelectedParagraphFromCaret);
 
 
-$("title").addEventListener("input",save);
+$("title").addEventListener("input",()=>{state.title=$("title").value;});
 
 $("editor").addEventListener("touchstart",e=>{
   if(e.touches.length===2){
@@ -1029,8 +1053,8 @@ $("editor").addEventListener("touchend",()=>{
   editorPinch=null;
 });
 
-function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
-function insertParagraph(){document.execCommand("insertParagraph");save();bindParagraphs()}
+function cmd(x){document.execCommand(x,false,null);$("editor").focus();syncEditorToMemory();stats()}
+function insertParagraph(){document.execCommand("insertParagraph");syncEditorToMemory();bindParagraphs();stats()}
 function newChapter(){save();state.chapters.push({name:"Capítulo "+(state.chapters.length+1),html:"<p></p>",notes:{}});state.current=state.chapters.length-1;selected=null;persistState();load()}
 function deleteChapter(i){
   const c=state.chapters[i];
@@ -1051,8 +1075,7 @@ function applyNightMode(on){
   const enabled=!!on;
   document.body.classList.toggle("night",enabled);
   state.night=enabled;
-  try{localStorage.setItem(NIGHT_KEY,enabled?"1":"0");}catch(e){}
-  persistState();
+  state.night=enabled;
 }
 function toggleNight(){applyNightMode(!document.body.classList.contains("night"))}
 function toggleFocus(){document.body.classList.toggle("focus-mode")}
@@ -3164,7 +3187,7 @@ function crc32(b){let c=~0;for(let x of b){c^=x;for(let k=0;k<8;k++)c=(c>>>1)^((
 // IMPORTANT: do not render the editor from the starter state before the
 // persistent stores have been checked. That race was allowing a reload to
 // display/retain the initial chapter instead of the real manuscript.
-initializePersistentState().catch(()=>{
+resetAllStoredDataOnce().then(()=>initializePersistentState()).catch(()=>{
   try{
     document.body.classList.toggle("night",state.night===true);
     ensureAppBaseHistory();
@@ -3174,9 +3197,10 @@ initializePersistentState().catch(()=>{
   }catch(e){}
 });
 
-window.addEventListener("pagehide",()=>{try{persistState()}catch(e){}});
-window.addEventListener("beforeunload",()=>{try{persistState()}catch(e){}});
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=46").catch(()=>{});
+
+$("manualSaveBtn")?.addEventListener("click",save);
+document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){e.preventDefault();save();}});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=47").catch(()=>{});
 </script>
 </body>
 </html>
