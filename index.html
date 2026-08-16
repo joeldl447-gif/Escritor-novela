@@ -150,6 +150,8 @@ body.night #appMenu .menu-title{border-color:#333}
 
 .analysis-click{cursor:pointer}.analysis-click:hover{text-decoration:underline}
 .analysis-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.language-finding{border-top:1px solid #ddd;padding:12px 0}.language-finding:first-child{border-top:0}.language-finding .lf-head{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.language-finding .lf-type{font-size:11px;padding:4px 7px;border-radius:12px;background:#e7e9ee}.language-finding .lf-location{font-size:12px;color:#777;margin-top:4px}.language-finding .lf-text{margin:8px 0;padding:9px;border-radius:8px;background:#f0f0f0}.language-finding .lf-suggestion{font-weight:600}.language-finding button{margin-top:7px}.night .language-finding{border-color:#333}.night .language-finding .lf-type{background:#333}.night .language-finding .lf-text{background:#303030}
+
 .analysis-actions button{font-size:13px;padding:6px 9px}
 .analysis-detail{margin-top:7px;padding:8px;border-radius:8px;background:#eee;font-size:13px;display:none}
 .analysis-detail.open{display:block}.night .analysis-detail{background:#303030}
@@ -494,10 +496,25 @@ body.night #appMenu .menu-title{border-color:#333}
       <button class="icon" onclick="closeReviewPanel()">←</button>
       <h2 style="flex:1">🔍 Modo revisión</h2>
     </div>
-    <p class="muted">Busca posibles problemas de continuidad y coherencia. Son sugerencias: la novela nunca se modifica automáticamente.</p>
-    <button type="button" id="runReviewBtn">🔎 Analizar novela</button>
-    <div id="reviewSummary" class="muted" style="margin:10px 0"></div>
-    <div id="reviewResults"></div>
+    <div class="analysis-card">
+      <h3>✍️ Corrección ortográfica y de estilo</h3>
+      <p class="muted">Detecta posibles faltas ortográficas, errores de sintaxis, puntuación de diálogos, guiones y problemas tipográficos. Nunca modifica el manuscrito automáticamente.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <label for="languageReviewChapter"><b>Capítulo:</b></label>
+        <select id="languageReviewChapter" style="min-width:180px;padding:8px"></select>
+        <button type="button" id="runLanguageReviewBtn">🔎 Analizar capítulo</button>
+        <button type="button" id="runLanguageReviewAllBtn">📚 Analizar toda la novela</button>
+      </div>
+      <div id="languageReviewSummary" class="muted" style="margin:10px 0"></div>
+      <div id="languageReviewResults"></div>
+    </div>
+    <div class="analysis-card">
+      <h3>🧩 Continuidad y coherencia</h3>
+      <p class="muted">Busca posibles problemas de continuidad y coherencia. Son sugerencias: la novela nunca se modifica automáticamente.</p>
+      <button type="button" id="runReviewBtn">🔎 Analizar novela</button>
+      <div id="reviewSummary" class="muted" style="margin:10px 0"></div>
+      <div id="reviewResults"></div>
+    </div>
   </div>
 </section>
 
@@ -1693,6 +1710,25 @@ function ignoreAnalysisName(name){
 function toggleAnalysisDetail(id){const e=$(id);if(e)e.classList.toggle("open")}
 
 
+
+let languageReviewFindings=[];
+function populateLanguageReviewChapters(){const sel=$("languageReviewChapter");if(!sel)return;const cur=Number(sel.value);sel.innerHTML="";state.chapters.forEach((c,i)=>{const o=document.createElement("option");o.value=String(i);o.textContent=(i+1)+". "+String(c.name||("Capítulo "+(i+1)));sel.appendChild(o)});sel.value=Number.isInteger(cur)&&cur>=0&&cur<state.chapters.length?String(cur):String(state.current||0)}
+function languageReviewTextRows(indexes){const rows=[];indexes.forEach(ci=>{const c=state.chapters[ci];if(!c)return;const d=document.createElement("div");d.innerHTML=c.html;[...d.querySelectorAll("p")].forEach((p,pi)=>{const t=p.innerText||"";if(t.trim())rows.push({ci,pi,text:t,chapter:String(c.name||("Capítulo "+(ci+1)))})})});return rows}
+function lf(type,title,detail,row,original,replacement,confidence){return{id:"lf_"+Math.random().toString(36).slice(2),type,title,detail,ci:row.ci,pi:row.pi,chapter:row.chapter,original:original||"",replacement:replacement||"",confidence:confidence||"media"}}
+function analyzeLanguageRows(rows){const out=[];const add=(...a)=>out.push(lf(...a));const rules=[["tambien","también"],["ademas","además"],["despues","después"],["capitulo","capítulo"],["pagina","página"],["parrafo","párrafo"],["dia","día"],["aqui","aquí"],["ahi","ahí"],["alli","allí"],["habian","habían"],["havia","había"],["tambiénn","también"]];rows.forEach(row=>{for(const [bad,good] of rules){const m=row.text.match(new RegExp("(?<![\\wÁÉÍÓÚÜÑáéíóúüñ])"+searchEscReg(bad)+"(?![\\wÁÉÍÓÚÜÑáéíóúüñ])","i"));if(m){const rep=m[0][0]===m[0][0].toUpperCase()?good.charAt(0).toUpperCase()+good.slice(1):good;add("Ortografía",`Posible falta ortográfica: «${m[0]}»`,"La forma encontrada suele requerir corrección ortográfica.",row,m[0],rep,"alta")}}const conf=[[/\\bhaber si\\b/i,"a ver","Posible confusión entre «haber» y «a ver»."],[/\\ba ver si\\b/i,"a ver","Esta expresión parece correcta; se muestra solo para revisión contextual."]];for(const [rx,rep,det] of conf){const m=row.text.match(rx);if(m&&m[0].toLowerCase()==="haber si")add("Ortografía / uso","Revisar «haber si»",det,row,m[0],rep,"media")}const checks=[[/[ \\t]+([,.;:!?])/,(m)=>m[1],"Espacio incorrecto antes de un signo de puntuación."],[/([,.;:!?]){2,}/,(m)=>m[1],"Signos de puntuación repetidos."],[/\\.{3,}/,()=>"…","Puede utilizarse «…» en lugar de varios puntos."],[/[ \\t]{2,}/,()=>" ","Hay espacios consecutivos."]];for(const [rx,rep,det] of checks){const m=row.text.match(rx);if(m)add("Puntuación / tipografía","Posible problema de puntuación",det,row,m[0],rep(m),"alta")}let m=row.text.match(/[.!?]\\s+([a-záéíóúñ])/);if(m)add("Sintaxis / mayúsculas","Posible inicio de oración en minúscula","Después de un punto, interrogación o exclamación normalmente comienza una nueva oración.",row,m[1],m[1].toUpperCase(),"media");m=row.text.match(/^\\s*(-{1,2})(?=\\S)/m);if(m)add("Diálogo / guion","Guion de diálogo","En narrativa en español suele utilizarse raya (—) para introducir diálogos.",row,m[1],"—","alta");m=row.text.match(/—\\s+([,.;:!?])/);if(m)add("Diálogo / puntuación","Espacio junto a la raya","Hay un espacio innecesario entre la raya y el signo de puntuación.",row,m[0],"—"+m[1],"alta");m=row.text.match(/(?<!—)--(?!-)/);if(m)add("Diálogo / guion","Guion doble","Puede corresponder a una raya de diálogo mal escrita.",row,m[0],"—","alta");m=row.text.match(/\\b(y|o|de|a|que|para|por)\\s+\\1\\b/i);if(m)add("Sintaxis","Posible palabra repetida","La misma palabra aparece dos veces seguidas.",row,m[0],m[1],"alta")});const seen=new Set(),unique=[];for(const f of out){const k=[f.ci,f.pi,f.original,f.replacement,f.title].join("|");if(!seen.has(k)){seen.add(k);unique.push(f)}}return unique.slice(0,200)}
+function renderLanguageReview(){const box=$("languageReviewResults"),sum=$("languageReviewSummary");if(!box)return;box.innerHTML="";if(sum)sum.textContent=languageReviewFindings.length?languageReviewFindings.length+" hallazgo"+(languageReviewFindings.length===1?"":"s")+" · ninguna modificación automática":"No se detectaron problemas con estas reglas.";if(!languageReviewFindings.length){box.innerHTML='<div class="muted">No se encontraron problemas evidentes. Esto no garantiza que el texto esté libre de errores.</div>';return}languageReviewFindings.forEach((f,i)=>{const d=document.createElement("div");d.className="language-finding";d.innerHTML='<div class="lf-head"><span class="lf-type">'+esc(f.type)+'</span><b>'+esc(f.title)+'</b></div><div class="lf-location">'+esc(f.chapter)+', párrafo '+(f.pi+1)+' · confianza: '+esc(f.confidence)+'</div><div class="lf-text"><b>Encontrado:</b> '+esc(f.original||"Revisar contexto")+(f.replacement?'<br><span class="lf-suggestion">Sugerencia: '+esc(f.replacement)+'</span>':"")+'</div><div>'+esc(f.detail)+'</div>'+(f.original&&f.replacement?'<button type="button" onclick="confirmLanguageCorrection('+i+')">✓ Confirmar corrección</button>':'<span class="analysis-muted">Revisión manual: no se propone reemplazo.</span>');d.onclick=e=>{if(e.target.tagName!=="BUTTON")jumpSearchResult(f.ci,f.pi)};box.appendChild(d)})}
+function runLanguageReview(all){populateLanguageReviewChapters();const indexes=all?state.chapters.map((_,i)=>i):[Number($("languageReviewChapter").value||state.current||0)];$("languageReviewSummary").textContent="Analizando…";languageReviewFindings=analyzeLanguageRows(languageReviewTextRows(indexes));renderLanguageReview()}
+function replaceFirstTextInElement(root,needle,replacement){const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);while(w.nextNode()){const n=w.currentNode,i=n.nodeValue.indexOf(needle);if(i>=0){n.nodeValue=n.nodeValue.slice(0,i)+replacement+n.nodeValue.slice(i+needle.length);return true}}return false}
+function confirmLanguageCorrection(i){const f=languageReviewFindings[i];if(!f||!f.original||!f.replacement)return;const ok=confirm("Posible corrección en "+f.chapter+", párrafo "+(f.pi+1)+".\
+\
+Encontrado: "+f.original+"\
+Sugerencia: "+f.replacement+"\
+\
+No se modificará nada sin tu confirmación.\
+\
+¿Aplicar esta corrección?");if(!ok)return;const c=state.chapters[f.ci];if(!c)return;const d=document.createElement("div");d.innerHTML=c.html;const p=[...d.querySelectorAll("p")][f.pi];if(!p||!replaceFirstTextInElement(p,f.original,f.replacement)){alert("No pude localizar exactamente el fragmento. No se modificó nada.");return}c.html=d.innerHTML;state.current=f.ci;localStorage.setItem(KEY,JSON.stringify(state));load();runLanguageReview(false)}
+function bindLanguageReviewControls(){const b=$("runLanguageReviewBtn"),a=$("runLanguageReviewAllBtn");if(b&&b.dataset.bound!=="1"){b.dataset.bound="1";b.onclick=()=>runLanguageReview(false)}if(a&&a.dataset.bound!=="1"){a.dataset.bound="1";a.onclick=()=>runLanguageReview(true)}populateLanguageReviewChapters()}
+
 let timelineFilter="all";
 
 let reviewState=[];
@@ -1751,7 +1787,10 @@ window.addEventListener("popstate",function(){
 function openReviewPanel(){
   $("reviewPanel").classList.add("open");
   setAppPanel("review");
-  bindReviewButton();renderReview();
+  bindReviewButton();
+  bindLanguageReviewControls();
+  renderReview();
+  renderLanguageReview();
 }
 function closeReviewPanel(){
   $("reviewPanel").classList.remove("open");
