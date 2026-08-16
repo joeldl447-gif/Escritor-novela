@@ -397,6 +397,21 @@ body.night #appMenu .menu-title{border-color:#333}
   #mapPanel .map-head h2{display:none!important}
   #mapPanel .map-head button{flex:1 0 auto}
 }
+
+
+/* Fichas: los subpaneles deben quedar por encima de la ficha principal. */
+#characterEditPanel.open,
+#characterAppearancesPanel.open,
+#characterRelationsPanel.open {
+  z-index: 500 !important;
+  pointer-events: auto !important;
+  touch-action: auto;
+}
+#characterEditPanel.open .panelInner,
+#characterAppearancesPanel.open .panelInner,
+#characterRelationsPanel.open .panelInner {
+  pointer-events: auto;
+}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
