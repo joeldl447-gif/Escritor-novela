@@ -381,7 +381,20 @@ body.night #appMenu .menu-title{border-color:#333}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
+
 <body>
+<div id="storageDiag" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.88);color:#fff;font-family:system-ui;padding:20px;overflow:auto">
+  <div style="max-width:760px;margin:auto;background:#181818;border-radius:14px;padding:20px">
+    <h2 style="margin-top:0">Diagnóstico de almacenamiento</h2>
+    <p>Esta pantalla NO modifica ni borra tus datos. Sirve para comprobar qué ocurre con el almacenamiento después de recargar.</p>
+    <pre id="storageDiagOutput" style="white-space:pre-wrap;background:#0d0d0d;padding:14px;border-radius:10px"></pre>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button id="storageDiagRefresh">Actualizar diagnóstico</button>
+      <button id="storageDiagClose">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <header>
   <button class="icon" onclick="toggleAppMenu()">☰</button>
   <input id="title" value="Mi novela" aria-label="Nombre del proyecto">
@@ -2989,6 +3002,89 @@ setTimeout(()=>restoreAppPanel(),60);
 
 if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=11").catch(()=>{});
 </script>
+
+<script>
+(function(){
+  const KEY="escritor_novela_v1";
+  const NIGHT="escritor_night";
+  const PANEL="escritor_active_panel";
+  function report(){
+    const out=document.getElementById("storageDiagOutput");
+    if(!out) return;
+    let lines=[];
+    lines.push("URL: "+location.href);
+    lines.push("Origen: "+location.origin);
+    lines.push("localStorage disponible: "+(typeof localStorage!=="undefined"));
+    lines.push("");
+    try{
+      const raw=localStorage.getItem(KEY);
+      lines.push("escritor_novela_v1 existe: "+(raw!==null));
+      lines.push("Tamaño novela: "+(raw===null?0:raw.length)+" caracteres");
+      if(raw){
+        try{
+          const s=JSON.parse(raw);
+          lines.push("JSON novela válido: SÍ");
+          lines.push("Capítulos: "+(Array.isArray(s.chapters)?s.chapters.length:"NO ES ARRAY"));
+          lines.push("current: "+String(s.current));
+          lines.push("Capítulo actual existe: "+!!(Array.isArray(s.chapters)&&s.chapters[s.current]));
+          if(Array.isArray(s.chapters)){
+            lines.push("Tamaños HTML: "+s.chapters.map((c,i)=>i+":"+((c&&c.html)||"").length).join(", "));
+          }
+        }catch(e){
+          lines.push("JSON novela válido: NO");
+          lines.push("Error JSON: "+e.name+": "+e.message);
+        }
+      }
+    }catch(e){
+      lines.push("ERROR leyendo novela: "+e.name+": "+e.message);
+    }
+    lines.push("");
+    try{
+      const night=localStorage.getItem(NIGHT);
+      lines.push("escritor_night: "+String(night));
+    }catch(e){ lines.push("ERROR leyendo tema: "+e.name+": "+e.message); }
+    try{
+      const panel=sessionStorage.getItem(PANEL);
+      lines.push("escritor_active_panel: "+String(panel));
+    }catch(e){ lines.push("ERROR leyendo panel: "+e.name+": "+e.message); }
+    lines.push("");
+    lines.push("Cantidad de claves localStorage: "+localStorage.length);
+    let total=0;
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      const v=localStorage.getItem(k)||"";
+      total += k.length + v.length;
+    }
+    lines.push("Tamaño aproximado localStorage: "+total+" caracteres");
+    lines.push("");
+    lines.push("Prueba de escritura temporal:");
+    const testKey="__escritor_storage_test__";
+    try{
+      localStorage.setItem(testKey,"ok");
+      const ok=localStorage.getItem(testKey)==="ok";
+      localStorage.removeItem(testKey);
+      lines.push("Escritura/lectura temporal: "+(ok?"FUNCIONA":"FALLA"));
+    }catch(e){
+      lines.push("Escritura temporal: FALLA");
+      lines.push("Error: "+e.name+": "+e.message);
+    }
+    out.textContent=lines.join("\\n");
+  }
+  function show(){document.getElementById("storageDiag").style.display="block";report();}
+  function hide(){document.getElementById("storageDiag").style.display="none";}
+  window.__showStorageDiagnostic=show;
+  window.addEventListener("load",function(){
+    const b=document.createElement("button");
+    b.textContent="Diagnóstico de almacenamiento";
+    b.style.cssText="position:fixed;right:12px;bottom:12px;z-index:99998;padding:8px 10px;border-radius:8px;border:1px solid #888;background:#222;color:#fff;font-size:12px";
+    b.onclick=show;
+    document.body.appendChild(b);
+    document.getElementById("storageDiagRefresh").onclick=report;
+    document.getElementById("storageDiagClose").onclick=hide;
+  });
+})();
+</script>
+
 </body>
 </html>
 <script>
