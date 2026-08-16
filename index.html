@@ -438,6 +438,18 @@ body.night #appMenu .menu-title{border-color:#333}
 #characterRelationsPanel.open .panelInner {
   pointer-events: auto;
 }
+
+.timeline-filters{display:flex;gap:6px;flex-wrap:wrap;padding:7px 0}
+.timeline-filters input,.timeline-filters select{min-width:120px;flex:1}
+.timeline-unplaced{padding:8px;border:1px dashed #aaa;border-radius:8px;margin-top:6px;overflow:auto;white-space:nowrap}
+.timeline-chip{margin:3px;padding:6px 9px;border-radius:8px;border:1px solid #aaa;background:inherit}
+.timeline-node.suggested .timeline-node-dot{background:#d7a52a!important}
+.timeline-node.confirmed .timeline-node-dot{background:#3a9b73!important}
+.timeline-node.ignored{opacity:.45}
+.timeline-node.selected .timeline-node-title{outline:2px solid #6aa9e8;border-radius:5px}
+.timeline-node-meta{white-space:normal}
+.timeline-connection-line{position:absolute;height:3px;background:#888;transform-origin:left center;pointer-events:none;border-radius:3px}
+
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -657,42 +669,72 @@ body.night #appMenu .menu-title{border-color:#333}
       <button type="button" class="icon" id="timelineBack">←</button>
       <h2 style="flex:1">🕰️ Línea temporal</h2>
       <button type="button" id="timelineAdd">＋ Momento</button>
-      <button type="button" id="timelineDetect" onclick="detectTimelineMoments()">🧠 Detectar</button>
+      <button type="button" id="timelineDetect" onclick="detectTimelineMoments()">🧠 Analizar novela</button>
       <button type="button" id="timelineZoomOut">−</button>
       <button type="button" id="timelineZoomIn">＋</button>
       <button type="button" id="timelineCenter">Centrar</button>
     </div>
     <div class="timeline-help">
       <span>Arrastrá el espacio para desplazarte.</span>
-      <span>Arrastrá los nodos para cambiar su posición.</span>
+      <span>Arrastrá los nodos para cambiar su posición temporal.</span>
       <span>Tocá un nodo para editarlo.</span>
+    </div>
+    <div class="timeline-filters">
+      <input id="timelineSearchInput" type="search" placeholder="🔎 Buscar…" oninput="renderTimelineCanvas()">
+      <select id="timelineStatusFilter" onchange="renderTimelineCanvas()">
+        <option value="all">Todos</option>
+        <option value="confirmed">Confirmados</option>
+        <option value="suggested">Detectados</option>
+        <option value="ignored">Ignorados</option>
+      </select>
+      <select id="timelineTypeFilter" onchange="renderTimelineCanvas()">
+        <option value="all">Todas las categorías</option>
+      </select>
+      <select id="timelineCharacterFilter" onchange="renderTimelineCanvas()">
+        <option value="all">Todos los personajes</option>
+      </select>
+      <select id="timelineModeFilter" onchange="renderTimelineCanvas()">
+        <option value="chronological">📅 Cronológica</option>
+        <option value="narrative">📖 Narrativa</option>
+      </select>
     </div>
     <div id="timelineCanvas" class="timeline-canvas">
       <div id="timelineWorld" class="timeline-world">
         <div id="timelineAxis" class="timeline-axis"></div>
+        <div id="timelineConnections"></div>
         <div id="timelineNodes"></div>
       </div>
     </div>
     <div id="timelineEmpty" class="timeline-empty">
       Todavía no hay momentos. Tocá <b>＋ Momento</b> para crear el primero.
     </div>
+    <div id="timelineUnplaced" class="timeline-unplaced" hidden></div>
     <div id="timelineEditor" class="timeline-editor" hidden>
       <div class="timeline-editor-head">
         <strong id="timelineEditorTitle">Nuevo momento</strong>
         <button type="button" id="timelineEditorClose">×</button>
       </div>
       <label>Título
-        <input id="timelineTitleInput" type="text" placeholder="Ej.: Mabel conoce a Francisco">
+        <input id="timelineTitleInput" type="text" placeholder="Ej.: Explosión del geriátrico">
       </label>
       <div class="timeline-editor-grid">
         <label>Fecha / referencia
-          <input id="timelineDateInput" type="text" placeholder="Ej.: 15 de marzo / esa noche">
+          <input id="timelineDateInput" type="text" placeholder="Ej.: Día 3 / 15 de marzo / esa noche">
         </label>
         <label>Tipo
           <select id="timelineKindInput">
             <option value="event">Acontecimiento</option>
             <option value="time">Momento temporal</option>
             <option value="note">Nota</option>
+            <option value="flashback">Flashback</option>
+            <option value="anticipation">Anticipación</option>
+          </select>
+        </label>
+        <label>Estado
+          <select id="timelineStatusInput">
+            <option value="confirmed">Confirmado</option>
+            <option value="suggested">Detectado</option>
+            <option value="ignored">Ignorado</option>
           </select>
         </label>
         <label>Capítulo
@@ -702,6 +744,12 @@ body.night #appMenu .menu-title{border-color:#333}
           <input id="timelineParagraphInput" type="number" min="1" value="1">
         </label>
       </div>
+      <label>Personajes involucrados
+        <input id="timelineCharactersInput" type="text" placeholder="Francisco, Mabel, Tomás…">
+      </label>
+      <label>Lugar
+        <input id="timelinePlaceInput" type="text" placeholder="Geriátrico, Chascomús…">
+      </label>
       <label>Descripción / notas
         <textarea id="timelineTextInput" rows="4" placeholder="Qué ocurre, qué cambia, información importante…"></textarea>
       </label>
@@ -709,6 +757,9 @@ body.night #appMenu .menu-title{border-color:#333}
         <button type="button" id="timelineSave">Guardar</button>
         <button type="button" id="timelineDelete" class="danger">Eliminar</button>
         <button type="button" id="timelineJump">📍 Ir al texto</button>
+        <button type="button" id="timelineConnect">🔗 Conectar</button>
+        <button type="button" id="timelineConfirm">✓ Confirmar</button>
+        <button type="button" id="timelineIgnore">✕ Ignorar</button>
       </div>
     </div>
   </div>
@@ -2192,8 +2243,114 @@ let timelinePinch=null;
 let timelinePointers=new Map();
 let timelineEditingId=null;
 
+
+const TIMELINE_DETECTION_TYPES=[
+  ["Muerte",/\b(murió|murio|falleció|fallecio|muerto|muerta|asesinaron|asesinado|asesinada)\b/i,"Posible muerte"],
+  ["Herida",/\b(herido|herida|hirieron|lastimado|lastimada)\b/i,"Posible herida"],
+  ["Encuentro",/\b(conoció|conocio|se conocieron|se encontró|se encontro|conoce a)\b/i,"Posible encuentro"],
+  ["Movimiento",/\b(llegó|llego|entró|entro|salió|salio|escapó|escapo|regresó|regreso|volvió|volvio|partió|partio|se marchó|se marcho)\b/i,"Movimiento"],
+  ["Acción",/\b(explotó|exploto|explosión|explosion|disparó|disparo|atacó|ataco|incendio|incendió|golpeó|golpeo|pelea|lucha)\b/i,"Acción / conflicto"],
+  ["Decisión",/\b(decidió|decidio|aceptó|acepto|rechazó|rechazo|prometió|prometio|eligió|eligio)\b/i,"Decisión"],
+  ["Descubrimiento",/\b(descubrió|descubrio|encontró|encontro|descubre|descubren|comprendió|comprendio)\b/i,"Descubrimiento"],
+  ["Referencia temporal",/\b(dos días después|dos dias despues|al día siguiente|al dia siguiente|tres días después|tres dias despues|años atrás|anos atras|años antes|anos antes)\b/i,"Referencia temporal"]
+];
+const TIMELINE_KIND_LABELS={
+ event:"Acontecimiento",time:"Momento temporal",note:"Nota",flashback:"Flashback",anticipation:"Anticipación"
+};
+function timelineEnsureFields(m){
+  if(!Array.isArray(m.characters))m.characters=[];
+  if(!Array.isArray(m.connections))m.connections=[];
+  if(!m.status)m.status=m.manual?"confirmed":"suggested";
+  if(!m.kind)m.kind="event";
+  if(!Number.isFinite(m.narrativeOrder))m.narrativeOrder=Number.isFinite(m.ci)?m.ci*100000+(m.pi||0):null;
+  return m;
+}
+function timelineFiltered(){
+  ensureTimelineState();
+  const q=normalize($("timelineSearchInput")?.value||"");
+  const status=$("timelineStatusFilter")?.value||"all";
+  const type=$("timelineTypeFilter")?.value||"all";
+  const char=$("timelineCharacterFilter")?.value||"all";
+  return state.timeline.map(timelineEnsureFields).filter(m=>{
+    if(status!=="all"&&m.status!==status)return false;
+    if(type!=="all"&&m.kind!==type)return false;
+    if(char!=="all"&&!m.characters.some(c=>normalize(c)===normalize(char)))return false;
+    if(q&&!normalize([m.title,m.text,m.date,m.place,...m.characters].join(" ")).includes(q))return false;
+    return true;
+  });
+}
+function populateTimelineFilters(){
+  const tf=$("timelineTypeFilter"),cf=$("timelineCharacterFilter");
+  if(tf){
+    const old=tf.value;
+    tf.innerHTML='<option value="all">Todas las categorías</option>'+
+      Object.entries(TIMELINE_KIND_LABELS).map(([k,v])=>`<option value="${esc(k)}">${esc(v)}</option>`).join("")+
+      TIMELINE_DETECTION_TYPES.map(x=>`<option value="${esc(x[0])}">${esc(x[0])}</option>`).join("");
+    if([...tf.options].some(o=>o.value===old))tf.value=old;
+  }
+  if(cf){
+    const old=cf.value;
+    const names=[...new Set((state.characters||[]).map(c=>c.name).filter(Boolean))];
+    cf.innerHTML='<option value="all">Todos los personajes</option>'+names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
+    if([...cf.options].some(o=>o.value===old))cf.value=old;
+  }
+}
+function buildTimeline(){
+  const out=[];
+  (state.chapters||[]).forEach((ch,ci)=>{
+    const div=document.createElement("div");div.innerHTML=ch.html||"";
+    [...div.querySelectorAll("p")].forEach((p,pi)=>{
+      const raw=(p.innerText||p.textContent||"").trim();
+      if(!raw)return;
+      const n=normalize(raw);
+      let found=null;
+      for(const [kind,rx,title] of TIMELINE_DETECTION_TYPES){
+        if(rx.test(raw)){found={kind,title};break}
+      }
+      const flash=/\b(recordó|recordaba|años atrás|anos atras|años antes|anos antes|había ocurrido|habia ocurrido)\b/i.test(raw);
+      const anticipation=/\b(todavía no sabía|todavia no sabia|aún no sabía|aun no sabia|no sabía que|no sabia que)\b/i.test(raw);
+      if(flash||anticipation)found=found||{kind:flash?"flashback":"anticipation",title:flash?"Flashback":"Anticipación"};
+      if(!found)return;
+      const chars=(state.characters||[]).filter(c=>{
+        const terms=[c.name,...(c.aliases||[])].map(x=>normalize(String(x||""))).filter(Boolean);
+        return terms.some(term=>term&&n.includes(term));
+      }).map(c=>c.name);
+      out.push({
+        title:found.title,text:raw,kind:found.kind,ci,pi,
+        chapter:ch.name||("Capítulo "+(ci+1)),characters:chars,
+        sourceKey:`${ci}:${pi}:${normalize(found.title)}`
+      });
+    });
+  });
+  return out;
+}
+function detectTimelineMoments(){
+  ensureTimelineState();
+  const existing=new Set(state.timeline.map(m=>m.sourceKey).filter(Boolean));
+  const detected=buildTimeline();
+  const suggestions=[];
+  detected.forEach((x,i)=>{
+    if(existing.has(x.sourceKey))return;
+    suggestions.push(timelineEnsureFields({
+      id:timelineId(),title:x.title,date:"",kind:x.kind,text:x.text,ci:x.ci,pi:x.pi,
+      chapter:x.chapter,characters:x.characters,manual:false,status:"suggested",
+      sourceKey:x.sourceKey,narrativeOrder:x.ci*100000+x.pi,x:240+(state.timeline.length+suggestions.length)*260
+    }));
+    existing.add(x.sourceKey);
+  });
+  state.timeline.push(...suggestions);
+  saveTimeline();
+  populateTimelineFilters();
+  renderTimelineCanvas();
+  setTimeout(centerTimeline,20);
+  alert(suggestions.length
+    ? `Se detectaron ${suggestions.length} posibles acontecimientos.\n\nQuedaron como «Detectados». Ninguno se confirmó automáticamente.`
+    : "No encontré nuevos acontecimientos con las reglas actuales.");
+}
+
 function ensureTimelineState(){
   if(!Array.isArray(state.timeline))state.timeline=[];
+  state.timeline=state.timeline.map(timelineEnsureFields);
 }
 function timelineId(){return "tm_"+Date.now()+"_"+Math.random().toString(36).slice(2,8)}
 function saveTimeline(){localStorage.setItem(KEY,JSON.stringify(state))}
@@ -2201,8 +2358,8 @@ function openTimelinePanel(){
   ensureTimelineState();
   $("timelinePanel").classList.add("open");
   setAppPanel("timeline");
-  if(!state.timeline.length)seedTimelineFromDetection(false);
   populateTimelineChapterSelect();
+  populateTimelineFilters();
   renderTimelineCanvas();
   setTimeout(centerTimeline,40);
 }
@@ -2243,21 +2400,40 @@ function timelineWorldPoint(clientX,clientY){
 }
 function renderTimelineCanvas(){
   ensureTimelineState();
-  const nodes=$("timelineNodes"),world=$("timelineWorld"),empty=$("timelineEmpty");
+  const nodes=$("timelineNodes"),world=$("timelineWorld"),empty=$("timelineEmpty"),unplaced=$("timelineUnplaced"),connections=$("timelineConnections");
+  if(!nodes||!world)return;
+  const events=timelineFiltered();
   nodes.innerHTML="";
-  empty.style.display=state.timeline.length?"none":"block";
+  if(connections)connections.innerHTML="";
+  empty.style.display=events.length?"none":"block";
   world.style.transform=`translate(${timelineView.x}px,${timelineView.y}px) scale(${timelineView.scale})`;
-  state.timeline.forEach((m,i)=>{
-    if(typeof m.x!=="number")m.x=220+i*260;
+
+  const mode=$("timelineModeFilter")?.value||"chronological";
+  const sorted=[...events].sort((a,b)=>{
+    if(mode==="narrative")return (a.narrativeOrder??0)-(b.narrativeOrder??0);
+    if(Number.isFinite(a.order)&&Number.isFinite(b.order))return a.order-b.order;
+    return (a.x||0)-(b.x||0);
+  });
+
+  const unplacedEvents=state.timeline.filter(m=>m.status==="suggested"&&!Number.isFinite(m.x));
+  if(unplaced){
+    unplaced.hidden=!unplacedEvents.length;
+    unplaced.innerHTML=unplacedEvents.length
+      ? "<b>Detectados sin ubicar:</b> "+unplacedEvents.map(m=>`<button class="timeline-chip" type="button" onclick="openTimelineEditor('${m.id}')">🟡 ${esc(m.title)}</button>`).join("")
+      : "";
+  }
+
+  sorted.forEach((m,i)=>{
+    if(typeof m.x!=="number")m.x=240+i*260;
     const d=document.createElement("div");
-    d.className="timeline-node "+(i%2===0?"above":"below");
+    d.className="timeline-node "+(i%2===0?"above":"below")+" "+m.status+(timelineEditingId===m.id?" selected":"");
     d.dataset.id=m.id;
     d.style.left=m.x+"px";
     d.innerHTML=`
       <span class="timeline-node-dot"></span><span class="timeline-node-stem"></span>
       <div class="timeline-node-title">${esc(m.title||"Momento sin título")}</div>
-      <div class="timeline-node-meta">${esc(m.date||"Sin fecha")} · ${esc(state.chapters[m.ci]?.name||"Sin capítulo")}</div>
-      <span class="timeline-node-kind">${m.manual?"✏️ Manual":"🧠 Detectado"}</span>`;
+      <div class="timeline-node-meta">${esc(m.date||"Sin fecha")} · ${esc(m.chapter||state.chapters[m.ci]?.name||"Sin capítulo")}</div>
+      <span class="timeline-node-kind">${m.status==="confirmed"?"🟢 Confirmado":m.status==="ignored"?"⚪ Ignorado":"🟡 Detectado"}${m.kind?` · ${esc(TIMELINE_KIND_LABELS[m.kind]||m.kind)}`:""}</span>`;
     d.addEventListener("pointerdown",e=>timelineNodeDown(e,m));
     d.addEventListener("click",e=>{
       if(d.dataset.moved==="1"){d.dataset.moved="";return}
@@ -2265,7 +2441,26 @@ function renderTimelineCanvas(){
     });
     nodes.appendChild(d);
   });
+  drawTimelineConnections(sorted);
   saveTimeline();
+}
+function drawTimelineConnections(events){
+  const box=$("timelineConnections");if(!box)return;
+  const byId=new Map(events.map(e=>[e.id,e]));
+  events.forEach(a=>{
+    (a.connections||[]).forEach(id=>{
+      const b=byId.get(id);if(!b||a.id>b.id)return;
+      const x1=a.x||0,x2=b.x||0;
+      const y1=(events.indexOf(a)%2===0?50-27:50+27);
+      const y2=(events.indexOf(b)%2===0?50-27:50+27);
+      const dx=x2-x1,dy=(y2-y1)*4;
+      const len=Math.sqrt(dx*dx+dy*dy),angle=Math.atan2(dy,dx)*180/Math.PI;
+      const line=document.createElement("div");
+      line.className="timeline-connection-line";
+      line.style.left=x1+"px";line.style.top=y1+"%";line.style.width=len+"px";line.style.transform=`rotate(${angle}deg)`;
+      box.appendChild(line);
+    });
+  });
 }
 function timelineNodeDown(e,m){
   e.stopPropagation();
@@ -2331,7 +2526,21 @@ function timelinePointerMove(e){
 }
 function timelinePointerUp(e){
   if(timelineDrag&&timelineDrag.pointerId===e.pointerId){
-    saveTimeline();timelineDrag=null;return;
+    const drag=timelineDrag; timelineDrag=null;
+    const m=state.timeline.find(x=>x.id===drag.id);
+    if(m && drag.moved){
+      const previous=drag.origX;
+      if(!confirm(`¿Confirmar la nueva posición temporal de «${m.title}»?`)){
+        m.x=previous;
+      }else{
+        m.x=Number(m.x)||previous;
+        m.order=m.x;
+      }
+      saveTimeline();renderTimelineCanvas();
+    }else if(m){
+      renderTimelineCanvas();
+    }
+    return;
   }
   timelinePointers.delete(e.pointerId);
   if(timelinePointers.size<2)timelinePinch=null;
@@ -2376,8 +2585,14 @@ function openTimelineEditor(id=null){
   $("timelineChapterInput").value=String(m.ci??0);
   $("timelineParagraphInput").value=String((m.pi??0)+1);
   $("timelineTextInput").value=m.text||"";
+  $("timelineStatusInput").value=m.status||"suggested";
+  $("timelineCharactersInput").value=(m.characters||[]).join(", ");
+  $("timelinePlaceInput").value=m.place||"";
   $("timelineDelete").style.display=id?"inline-block":"none";
-  $("timelineJump").style.display=id?"inline-block":"none";
+  $("timelineJump").style.display=(id&&Number.isInteger(m.ci))?"inline-block":"none";
+  $("timelineConnect").style.display=id?"inline-block":"none";
+  $("timelineConfirm").style.display=m.status==="suggested"?"inline-block":"none";
+  $("timelineIgnore").style.display=m.status==="suggested"?"inline-block":"none";
   $("timelineEditor").hidden=false;
 }
 function closeTimelineEditor(){$("timelineEditor").hidden=true;timelineEditingId=null}
@@ -2387,12 +2602,41 @@ function saveTimelineMoment(){
   if(!title){$("timelineTitleInput").focus();return}
   const ci=Math.max(0,Math.min(state.chapters.length-1,Number($("timelineChapterInput").value)||0));
   const pi=Math.max(0,(Number($("timelineParagraphInput").value)||1)-1);
+  const next={
+    title,date:$("timelineDateInput").value.trim(),kind:$("timelineKindInput").value,
+    status:$("timelineStatusInput").value,text:$("timelineTextInput").value.trim(),
+    ci,pi,manual:true,chapter:state.chapters[ci]?.name||("Capítulo "+(ci+1)),
+    characters:$("timelineCharactersInput").value.split(",").map(x=>x.trim()).filter(Boolean),
+    place:$("timelinePlaceInput").value.trim(),
+    narrativeOrder:ci*100000+pi
+  };
   if(timelineEditingId){
-    const m=state.timeline.find(x=>x.id===timelineEditingId);
-    if(m)Object.assign(m,{title,date:$("timelineDateInput").value.trim(),kind:$("timelineKindInput").value,text:$("timelineTextInput").value.trim(),ci,pi,manual:true});
+    const m=state.timeline.find(x=>x.id===timelineEditingId);if(!m)return;
+    if(!confirm(`¿Guardar los cambios de «${m.title}»?`))return;
+    Object.assign(m,next);
   }else{
-    state.timeline.push({id:timelineId(),title,date:$("timelineDateInput").value.trim(),kind:$("timelineKindInput").value,text:$("timelineTextInput").value.trim(),ci,pi,manual:true,x:240+state.timeline.length*260});
+    if(!confirm(`¿Crear el acontecimiento «${title}»?`))return;
+    state.timeline.push(timelineEnsureFields({...next,id:timelineId(),x:240+state.timeline.length*260}));
   }
+  saveTimeline();closeTimelineEditor();populateTimelineFilters();renderTimelineCanvas();
+}
+function confirmTimelineEditorStatus(status){
+  const m=state.timeline.find(x=>x.id===timelineEditingId);if(!m)return;
+  const word=status==="confirmed"?"confirmar":"ignorar";
+  if(!confirm(`¿${word.charAt(0).toUpperCase()+word.slice(1)} «${m.title}»?`))return;
+  m.status=status;saveTimeline();closeTimelineEditor();renderTimelineCanvas();
+}
+function connectTimelineFromEditor(){
+  const m=state.timeline.find(x=>x.id===timelineEditingId);if(!m)return;
+  const title=prompt("Escribí el título exacto del otro acontecimiento:");
+  if(title===null)return;
+  const other=state.timeline.find(x=>normalize(x.title)===normalize(title.trim()));
+  if(!other){alert("No encontré ese acontecimiento.");return}
+  if(other.id===m.id){alert("No podés conectarlo consigo mismo.");return}
+  if(!confirm(`¿Conectar «${m.title}» con «${other.title}»?`))return;
+  m.connections=m.connections||[];other.connections=other.connections||[];
+  if(!m.connections.includes(other.id))m.connections.push(other.id);
+  if(!other.connections.includes(m.id))other.connections.push(m.id);
   saveTimeline();closeTimelineEditor();renderTimelineCanvas();
 }
 function deleteTimelineMoment(){
@@ -2460,6 +2704,9 @@ function bindTimelineUI(){
   $("timelineSave").addEventListener("click",saveTimelineMoment);
   $("timelineDelete").addEventListener("click",deleteTimelineMoment);
   $("timelineJump").addEventListener("click",jumpTimelineMoment);
+  $("timelineConnect").addEventListener("click",connectTimelineFromEditor);
+  $("timelineConfirm").addEventListener("click",()=>confirmTimelineEditorStatus("confirmed"));
+  $("timelineIgnore").addEventListener("click",()=>confirmTimelineEditorStatus("ignored"));
 }
 bindTimelineUI();
 window.addEventListener("resize",()=>{if($("timelinePanel")?.classList.contains("open"))centerTimeline()});
