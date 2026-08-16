@@ -150,6 +150,7 @@ body.night #appMenu .menu-title{border-color:#333}
 
 .analysis-click{cursor:pointer}.analysis-click:hover{text-decoration:underline}
 .analysis-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.character-appearance-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:8px 0}.character-appearance-context{margin-top:8px;padding:10px;border-radius:8px;background:#f0f0f0;line-height:1.5}.character-appearance-card.current{outline:3px solid #e2a83b;outline-offset:2px}.character-appearance-card button{margin-top:8px}.night .character-appearance-card{border-color:#444}.night .character-appearance-context{background:#303030}
 .character-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.character-edit-grid label,#characterEditPanel label{display:flex;flex-direction:column;gap:5px;margin-top:10px}.character-edit-grid input,.character-edit-grid select,#characterEditPanel textarea{box-sizing:border-box;width:100%}.character-edit-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}@media(max-width:600px){.character-edit-grid{grid-template-columns:1fr}}
 .language-finding-focus{outline:3px solid #e2a83b;outline-offset:4px;border-radius:6px;transition:outline-color .2s}
 .language-finding{border-top:1px solid #ddd;padding:12px 0}.language-finding:first-child{border-top:0}.language-finding .lf-head{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.language-finding .lf-type{font-size:11px;padding:4px 7px;border-radius:12px;background:#e7e9ee}.language-finding .lf-location{font-size:12px;color:#777;margin-top:4px}.language-finding .lf-text{margin:8px 0;padding:9px;border-radius:8px;background:#f0f0f0}.language-finding .lf-suggestion{font-weight:600}.language-finding button{margin-top:7px}.night .language-finding{border-color:#333}.night .language-finding .lf-type{background:#333}.night .language-finding .lf-text{background:#303030}
@@ -669,6 +670,20 @@ body.night #appMenu .menu-title{border-color:#333}
       </div>
     </div>
   </div>
+</section>
+<section id="characterAppearancesPanel" class="overlayPanel">
+<div class="panelInner">
+<div style="display:flex;gap:8px;align-items:center">
+<button class="icon" onclick="closeCharacterAppearances()">←</button>
+<h2 id="characterAppearancesTitle" style="flex:1">📚 Apariciones</h2>
+</div>
+<div id="characterAppearancesSummary" class="muted" style="margin:8px 0"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+<button onclick="characterAppearancePrev()">← Anterior</button>
+<button onclick="characterAppearanceNext()">Siguiente →</button>
+</div>
+<div id="characterAppearancesList"></div>
+</div>
 </section>
 <section id="characterEditPanel" class="overlayPanel">
 <div class="panelInner">
@@ -2827,6 +2842,128 @@ function confirmDeleteCharacter(){
   save();renderCharacterProfiles();closeCharacterEdit();
 }
 
+
+let characterAppearanceState={characterIndex:null,items:[],position:0};
+
+function getCharacterAppearanceItems(characterIndex){
+  const c=state.characters[characterIndex];
+  if(!c)return [];
+  const terms=[c.name].concat(Array.isArray(c.aliases)?c.aliases:[]);
+  const normalizedTerms=terms.map(x=>normalize(String(x||""))).filter(Boolean);
+  const items=[];
+  state.chapters.forEach((ch,ci)=>{
+    const div=document.createElement("div");
+    div.innerHTML=ch.html||"";
+    const paragraphs=[...div.querySelectorAll("p")];
+    paragraphs.forEach((p,pi)=>{
+      const original=p.innerText||p.textContent||"";
+      const n=normalize(original);
+      if(!n)return;
+      const hit=normalizedTerms.some(term=>term && n.includes(term));
+      if(hit){
+        items.push({
+          chapterIndex:ci,
+          paragraphIndex:pi,
+          chapterName:String(ch.name||("Capítulo "+(ci+1))),
+          text:original.trim()
+        });
+      }
+    });
+  });
+  return items;
+}
+
+function openCharacterAppearances(index){
+  const c=state.characters[index];
+  if(!c)return;
+  characterAppearanceState={
+    characterIndex:index,
+    items:getCharacterAppearanceItems(index),
+    position:0
+  };
+  $("characterAppearancesTitle").textContent="📚 Apariciones de "+c.name;
+  renderCharacterAppearances();
+  $("characterAppearancesPanel").classList.add("open");
+}
+
+function closeCharacterAppearances(){
+  $("characterAppearancesPanel").classList.remove("open");
+}
+
+function renderCharacterAppearances(){
+  const box=$("characterAppearancesList");
+  const sum=$("characterAppearancesSummary");
+  const s=characterAppearanceState;
+  if(!box)return;
+  box.innerHTML="";
+  if(sum)sum.textContent=s.items.length
+    ? `${s.items.length} aparición${s.items.length===1?"":"es"} encontradas · ${s.position+1} de ${s.items.length}`
+    : "No se encontraron apariciones del personaje.";
+  if(!s.items.length)return;
+
+  s.items.forEach((item,i)=>{
+    const d=document.createElement("div");
+    d.className="character-appearance-card"+(i===s.position?" current":"");
+    d.innerHTML=
+      `<b>${esc(item.chapterName)}</b> · párrafo ${item.paragraphIndex+1}`+
+      `<div class="character-appearance-context">${esc(item.text)}</div>`+
+      `<button type="button" onclick="goToCharacterAppearance(${i})">📍 Ir al párrafo</button>`;
+    box.appendChild(d);
+  });
+}
+
+function characterAppearancePrev(){
+  const s=characterAppearanceState;
+  if(!s.items.length)return;
+  s.position=(s.position-1+s.items.length)%s.items.length;
+  renderCharacterAppearances();
+}
+
+function characterAppearanceNext(){
+  const s=characterAppearanceState;
+  if(!s.items.length)return;
+  s.position=(s.position+1)%s.items.length;
+  renderCharacterAppearances();
+}
+
+function goToCharacterAppearance(position){
+  const s=characterAppearanceState;
+  const item=s.items[position];
+  if(!item)return;
+  s.position=position;
+  state.current=item.chapterIndex;
+  load();
+  closeCharacterAppearances();
+
+  setTimeout(()=>{
+    const editor=document.getElementById("editor");
+    if(!editor)return;
+    const paragraphs=[...editor.querySelectorAll("p")];
+    const p=paragraphs[item.paragraphIndex];
+    if(!p){
+      alert("No pude localizar exactamente ese párrafo. El texto no fue modificado.");
+      return;
+    }
+    p.scrollIntoView({behavior:"smooth",block:"center"});
+    p.classList.add("character-appearance-focus");
+    setTimeout(()=>p.classList.remove("character-appearance-focus"),3000);
+    try{
+      editor.focus();
+      const range=document.createRange();
+      range.selectNodeContents(p);
+      range.collapse(true);
+      const sel=window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }catch(e){}
+  },180);
+}
+
+function renderCharacterProfileActions(index){
+  return `<button type="button" onclick="openCharacterEdit(${index})">✏️ Editar ficha</button>`+
+         `<button type="button" onclick="openCharacterAppearances(${index})">📚 Ver apariciones</button>`;
+}
+
 function characterProfileData(name,key){
   const appearances=[];
   const chapterSet=new Set();
@@ -3112,7 +3249,7 @@ function renderCharacterProfiles(){
 
     d.innerHTML=`
       <h3>👤 ${esc(name)}</h3>
-      <div class="character-edit-actions"><button type="button" onclick="openCharacterEdit(${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)})">✏️ Editar ficha</button></div>
+      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}</div>
       <div class="character-profile-meta">
         ${data.appearances.length} aparición${data.appearances.length===1?"":"es"} · ${data.chapters.length} capítulo${data.chapters.length===1?"":"s"}
         · ${known?.desc?esc(known.desc):"Detectado automáticamente"}
