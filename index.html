@@ -150,6 +150,7 @@ body.night #appMenu .menu-title{border-color:#333}
 
 .analysis-click{cursor:pointer}.analysis-click:hover{text-decoration:underline}
 .analysis-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.character-relation-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:8px 0}.character-relation-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.character-relation-type{font-weight:700}.character-relation-evidence{margin-top:8px;padding:9px;border-radius:8px;background:#f0f0f0;font-size:13px}.character-alias-card{border:1px solid #ddd;border-radius:10px;padding:10px;margin:7px 0}.character-section-title{margin-top:18px}.night .character-relation-card,.night .character-alias-card{border-color:#444}.night .character-relation-evidence{background:#303030}
 .character-appearance-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:8px 0}.character-appearance-context{margin-top:8px;padding:10px;border-radius:8px;background:#f0f0f0;line-height:1.5}.character-appearance-card.current{outline:3px solid #e2a83b;outline-offset:2px}.character-appearance-card button{margin-top:8px}.night .character-appearance-card{border-color:#444}.night .character-appearance-context{background:#303030}
 .character-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.character-edit-grid label,#characterEditPanel label{display:flex;flex-direction:column;gap:5px;margin-top:10px}.character-edit-grid input,.character-edit-grid select,#characterEditPanel textarea{box-sizing:border-box;width:100%}.character-edit-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}@media(max-width:600px){.character-edit-grid{grid-template-columns:1fr}}
 .language-finding-focus{outline:3px solid #e2a83b;outline-offset:4px;border-radius:6px;transition:outline-color .2s}
@@ -671,6 +672,15 @@ body.night #appMenu .menu-title{border-color:#333}
     </div>
   </div>
 </section>
+<section id="characterRelationsPanel" class="overlayPanel">
+<div class="panelInner">
+<div style="display:flex;gap:8px;align-items:center">
+<button class="icon" onclick="closeCharacterRelations()">←</button>
+<h2 id="characterRelationsTitle" style="flex:1">🔗 Relaciones</h2>
+</div>
+<div id="characterRelationsContent"></div>
+</div>
+</section>
 <section id="characterAppearancesPanel" class="overlayPanel">
 <div class="panelInner">
 <div style="display:flex;gap:8px;align-items:center">
@@ -701,6 +711,7 @@ body.night #appMenu .menu-title{border-color:#333}
 <label>Historia / antecedentes<textarea id="charHistory" rows="5"></textarea></label>
 <label>Objetivos<textarea id="charGoals" rows="3"></textarea></label>
 <label>Miedos / debilidades<textarea id="charFears" rows="3"></textarea></label>
+<label>Notas adicionales<textarea id="charNotes" rows="3"></textarea></label>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button onclick="confirmSaveCharacter()">💾 Guardar cambios</button><button onclick="confirmDeleteCharacter()">🗑️ Eliminar ficha</button></div>
 </div></section>
 <section id="characterPanel" class="overlayPanel">
@@ -2772,7 +2783,7 @@ function bindMapUI(){
 function openCharacterProfiles(){
   $("characterPanel").classList.add("open");
   try{
-    state.characters=(state.characters||[]).map(normalizeCharacterRecord);
+    state.characters=(state.characters||[]).map(normalizeCharacterRecordPhase4);
     renderCharacterProfiles();
   }catch(e){
     console.error("Error en fichas de personajes:",e);
@@ -2810,7 +2821,7 @@ function openCharacterEdit(index){
   $("charName").value=c.name;$("charAliases").value=c.aliases.join(", ");
   $("charAge").value=c.age;$("charOccupation").value=c.occupation;$("charOrigin").value=c.origin;
   $("charStatus").value=c.status;$("charAppearance").value=c.appearance;$("charPersonality").value=c.personality;
-  $("charHistory").value=c.history;$("charGoals").value=c.goals;$("charFears").value=c.fears;
+  $("charHistory").value=c.history;$("charGoals").value=c.goals;$("charFears").value=c.fears;$("charNotes").value=c.notes||"";
   $("characterEditPanel").classList.add("open");
 }
 function closeCharacterEdit(){$("characterEditPanel").classList.remove("open");characterEditingIndex=null}
@@ -2820,7 +2831,7 @@ function collectCharacterForm(){
     aliases:$("charAliases").value.split(",").map(x=>x.trim()).filter(Boolean),
     age:$("charAge").value.trim(),occupation:$("charOccupation").value.trim(),origin:$("charOrigin").value.trim(),
     status:$("charStatus").value,appearance:$("charAppearance").value.trim(),personality:$("charPersonality").value.trim(),
-    history:$("charHistory").value.trim(),goals:$("charGoals").value.trim(),fears:$("charFears").value.trim()
+    history:$("charHistory").value.trim(),goals:$("charGoals").value.trim(),fears:$("charFears").value.trim(),notes:$("charNotes").value.trim()
   });
 }
 function confirmSaveCharacter(){
@@ -2963,6 +2974,182 @@ function renderCharacterProfileActions(index){
   return `<button type="button" onclick="openCharacterEdit(${index})">✏️ Editar ficha</button>`+
          `<button type="button" onclick="openCharacterAppearances(${index})">📚 Ver apariciones</button>`;
 }
+
+
+const CHARACTER_RELATION_TYPES=[
+  "padre","madre","hijo","hija","hermano","hermana","pareja","expareja",
+  "amigo","amiga","enemigo","enemiga","compañero","compañera","jefe","jefa",
+  "subordinado","subordinada","abuelo","abuela","tío","tía","primo","prima",
+  "vecino","vecina","conocido","conocida","otro"
+];
+let characterRelationsState={characterIndex:null};
+
+function normalizeCharacterRecordPhase4(c){
+  const r=normalizeCharacterRecord(c);
+  r.aliases=Array.isArray(r.aliases)?r.aliases:[];
+  r.notes=String(c&&c.notes||"");
+  r.relations=Array.isArray(c&&c.relations)?c.relations.map(x=>({
+    target:String(x.target||""),
+    type:String(x.type||"otro"),
+    note:String(x.note||"")
+  })).filter(x=>x.target):[];
+  return r;
+}
+
+function relationCharacterOptions(excludeIndex){
+  return state.characters.map((c,i)=>({c,i})).filter(x=>x.i!==excludeIndex);
+}
+
+function openCharacterRelations(index){
+  const c=state.characters[index];
+  if(!c)return;
+  characterRelationsState.characterIndex=index;
+  $("characterRelationsTitle").textContent="🔗 Relaciones de "+c.name;
+  renderCharacterRelations();
+  $("characterRelationsPanel").classList.add("open");
+}
+function closeCharacterRelations(){$("characterRelationsPanel").classList.remove("open");}
+
+function renderCharacterRelations(){
+  const box=$("characterRelationsContent");
+  if(!box)return;
+  const i=characterRelationsState.characterIndex;
+  const c=state.characters[i];
+  if(!c)return;
+  c=normalizeCharacterRecordPhase4(c);
+  state.characters[i]=c;
+
+  let html='<div class="character-section-title"><b>Relaciones confirmadas</b></div>';
+  if(!c.relations.length){
+    html+='<p class="muted">Todavía no hay relaciones confirmadas.</p>';
+  }else{
+    c.relations.forEach((r,ri)=>{
+      html+=`<div class="character-relation-card">
+        <div class="character-relation-row"><span class="character-relation-type">${esc(r.type)}</span> → <b>${esc(r.target)}</b></div>
+        ${r.note?`<div>${esc(r.note)}</div>`:""}
+        <button type="button" onclick="confirmDeleteCharacterRelation(${ri})">🗑️ Eliminar relación</button>
+      </div>`;
+    });
+  }
+
+  html+=`<div class="character-section-title"><b>Agregar relación</b></div>
+    <label>Personaje relacionado
+      <select id="relationTargetSelect">
+        <option value="">Seleccionar…</option>
+        ${relationCharacterOptions(i).map(x=>`<option value="${esc(x.c.name)}">${esc(x.c.name)}</option>`).join("")}
+      </select>
+    </label>
+    <label>Tipo de relación
+      <select id="relationTypeSelect">${CHARACTER_RELATION_TYPES.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select>
+    </label>
+    <label>Nota (opcional)<textarea id="relationNoteInput" rows="3" placeholder="Ej.: Se conocen desde antes del comienzo de la novela."></textarea></label>
+    <button type="button" onclick="confirmAddCharacterRelation()">✓ Confirmar relación</button>`;
+
+  html+='<div class="character-section-title"><b>Alias confirmados</b></div>';
+  if(c.aliases.length){
+    c.aliases.forEach((a,ai)=>{
+      html+=`<div class="character-alias-card"><b>${esc(a)}</b> <button type="button" onclick="confirmRemoveCharacterAlias(${ai})">Eliminar</button></div>`;
+    });
+  }else html+='<p class="muted">No hay alias confirmados.</p>';
+  html+=`<button type="button" onclick="confirmAddCharacterAlias()">＋ Agregar alias</button>`;
+
+  box.innerHTML=html;
+}
+
+function confirmAddCharacterRelation(){
+  const i=characterRelationsState.characterIndex,c=state.characters[i];
+  if(!c)return;
+  const target=$("relationTargetSelect").value;
+  const type=$("relationTypeSelect").value;
+  const note=$("relationNoteInput").value.trim();
+  if(!target){alert("Seleccioná un personaje relacionado.");return}
+  if(!confirm(`¿Confirmar esta relación?\n\n${c.name} → ${type} → ${target}`))return;
+  c.relations=Array.isArray(c.relations)?c.relations:[];
+  c.relations.push({target,type,note});
+  state.characters[i]=normalizeCharacterRecordPhase4(c);
+  save();renderCharacterRelations();
+}
+
+function confirmDeleteCharacterRelation(ri){
+  const i=characterRelationsState.characterIndex,c=state.characters[i];
+  if(!c||!c.relations[ri])return;
+  const r=c.relations[ri];
+  if(!confirm(`¿Eliminar la relación «${c.name} → ${r.type} → ${r.target}»?`))return;
+  c.relations.splice(ri,1);
+  state.characters[i]=normalizeCharacterRecordPhase4(c);
+  save();renderCharacterRelations();
+}
+
+function confirmAddCharacterAlias(){
+  const i=characterRelationsState.characterIndex,c=state.characters[i];
+  if(!c)return;
+  const alias=prompt("Escribí el alias que querés agregar:");
+  if(alias===null)return;
+  const a=alias.trim();
+  if(!a)return;
+  if(c.aliases.some(x=>normalize(x)===normalize(a))){
+    alert("Ese alias ya existe.");
+    return;
+  }
+  if(!confirm(`¿Agregar «${a}» como alias confirmado de «${c.name}»?`))return;
+  c.aliases.push(a);
+  state.characters[i]=normalizeCharacterRecordPhase4(c);
+  save();renderCharacterRelations();
+}
+
+function confirmRemoveCharacterAlias(ai){
+  const i=characterRelationsState.characterIndex,c=state.characters[i];
+  if(!c||!c.aliases[ai])return;
+  const a=c.aliases[ai];
+  if(!confirm(`¿Eliminar el alias «${a}» de «${c.name}»?`))return;
+  c.aliases.splice(ai,1);
+  state.characters[i]=normalizeCharacterRecordPhase4(c);
+  save();renderCharacterRelations();
+}
+
+function findCharacterRelationCandidates(index){
+  const c=state.characters[index];
+  if(!c)return [];
+  const names=state.characters.map(x=>x.name).filter(Boolean);
+  const candidates=[];
+  state.chapters.forEach((ch,ci)=>{
+    const div=document.createElement("div");div.innerHTML=ch.html||"";
+    [...div.querySelectorAll("p")].forEach((p,pi)=>{
+      const t=p.innerText||"";
+      if(!normalize(t).includes(normalize(c.name)))return;
+      names.forEach(other=>{
+        if(normalize(other)===normalize(c.name))return;
+        if(!normalize(t).includes(normalize(other)))return;
+        let type="otro";
+        const n=normalize(t);
+        if(/\bmadre\b/.test(n))type="madre";
+        else if(/\bpadre\b/.test(n))type="padre";
+        else if(/\bhermano\b/.test(n))type="hermano";
+        else if(/\bhermana\b/.test(n))type="hermana";
+        else if(/\bamigo\b/.test(n))type="amigo";
+        else if(/\bamiga\b/.test(n))type="amiga";
+        else if(/\benemigo\b/.test(n))type="enemigo";
+        else if(/\bpareja\b/.test(n))type="pareja";
+        candidates.push({other,chapter:ch.name||("Capítulo "+(ci+1)),paragraph:pi+1,text:t,type});
+      });
+    });
+  });
+  const unique=[],seen=new Set();
+  candidates.forEach(x=>{
+    const k=normalize(x.other)+"|"+x.chapter+"|"+x.paragraph+"|"+x.type;
+    if(!seen.has(k)){seen.add(k);unique.push(x)}
+  });
+  return unique.slice(0,30);
+}
+
+function showCharacterRelationCandidates(index){
+  const c=state.characters[index];
+  const found=findCharacterRelationCandidates(index);
+  if(!found.length){alert("No encontré relaciones evidentes para este personaje.");return}
+  const msg=found.slice(0,10).map((x,i)=>`${i+1}. ${x.other} · posible relación: ${x.type}\n${x.chapter}, párrafo ${x.paragraph}\n“${x.text.slice(0,160)}”`).join("\n\n");
+  alert("Posibles relaciones encontradas:\n\n"+msg+"\n\nEstas detecciones son solo sugerencias y no modifican la ficha.");
+}
+
 
 function characterProfileData(name,key){
   const appearances=[];
@@ -3249,7 +3436,7 @@ function renderCharacterProfiles(){
 
     d.innerHTML=`
       <h3>👤 ${esc(name)}</h3>
-      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}</div>
+      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}<button type="button" onclick="openCharacterRelations((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))">🔗 Relaciones</button><button type="button" onclick="showCharacterRelationCandidates((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))">🔎 Detectar relaciones</button></div>
       <div class="character-profile-meta">
         ${data.appearances.length} aparición${data.appearances.length===1?"":"es"} · ${data.chapters.length} capítulo${data.chapters.length===1?"":"s"}
         · ${known?.desc?esc(known.desc):"Detectado automáticamente"}
