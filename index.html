@@ -699,7 +699,13 @@ body.night #appMenu .menu-title{border-color:#333}
 <div class="panelInner">
 <div style="display:flex;gap:8px;align-items:center"><button class="icon" onclick="closeCharacterEdit()">←</button><h2 id="characterEditTitle" style="flex:1">👤 Personaje</h2></div>
 <div class="character-edit-grid">
-<label>Nombre<input id="charName" type="text"></label>
+<label>Nombre / identificación
+<select id="charNameType">
+<option value="nombre">Nombre</option>
+<option value="apodo">Apodo</option>
+<option value="alias">Alias</option>
+</select>
+<input id="charName" type="text" placeholder="Nombre con el que se identifica en la novela"></label>
 <label>Apodos / alias<input id="charAliases" type="text" placeholder="Separados por comas"></label>
 <label>Edad<input id="charAge" type="text"></label>
 <label>Ocupación<input id="charOccupation" type="text"></label>
@@ -2801,6 +2807,7 @@ function normalizeCharacterRecord(c){
   return {
     name:String(c.name||""),
     desc:String(c.desc||""),
+    nameType:String(c.nameType||"nombre"),
     aliases:Array.isArray(c.aliases)?c.aliases:String(c.aliases||"").split(",").map(x=>x.trim()).filter(Boolean),
     age:String(c.age||""),
     occupation:String(c.occupation||""),
@@ -2818,6 +2825,7 @@ function openCharacterEdit(index){
   const c=normalizeCharacterRecord(state.characters[index]);
   characterEditingIndex=index;
   $("characterEditTitle").textContent="👤 "+c.name;
+  $("charNameType").value=c.nameType||"nombre";
   $("charName").value=c.name;$("charAliases").value=c.aliases.join(", ");
   $("charAge").value=c.age;$("charOccupation").value=c.occupation;$("charOrigin").value=c.origin;
   $("charStatus").value=c.status;$("charAppearance").value=c.appearance;$("charPersonality").value=c.personality;
@@ -2827,7 +2835,7 @@ function openCharacterEdit(index){
 function closeCharacterEdit(){$("characterEditPanel").classList.remove("open");characterEditingIndex=null}
 function collectCharacterForm(){
   return normalizeCharacterRecord({
-    name:$("charName").value.trim(),desc:$("charAppearance").value.trim(),
+    name:$("charName").value.trim(),nameType:$("charNameType").value,desc:$("charAppearance").value.trim(),
     aliases:$("charAliases").value.split(",").map(x=>x.trim()).filter(Boolean),
     age:$("charAge").value.trim(),occupation:$("charOccupation").value.trim(),origin:$("charOrigin").value.trim(),
     status:$("charStatus").value,appearance:$("charAppearance").value.trim(),personality:$("charPersonality").value.trim(),
@@ -2971,8 +2979,8 @@ function goToCharacterAppearance(position){
 }
 
 function renderCharacterProfileActions(index){
-  return `<button type="button" onclick="openCharacterEdit(${index})">✏️ Editar ficha</button>`+
-         `<button type="button" onclick="openCharacterAppearances(${index})">📚 Ver apariciones</button>`;
+  return `<button type="button" data-character-action="edit" data-character-index="${index}">✏️ Editar ficha</button>`+
+         `<button type="button" data-character-action="appearances" data-character-index="${index}">📚 Ver apariciones</button>`;
 }
 
 
@@ -3436,8 +3444,9 @@ function renderCharacterProfiles(){
 
     d.innerHTML=`
       <h3>👤 ${esc(name)}</h3>
-      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}<button type="button" onclick="openCharacterRelations((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))">🔗 Relaciones</button><button type="button" onclick="showCharacterRelationCandidates((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))">🔎 Detectar relaciones</button></div>
+      <div class="character-edit-actions">${renderCharacterProfileActions((state.characters||[]).findIndex(x=>normalize(x.name||"")===key))}<button type="button" data-character-action="relations" data-character-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔗 Relaciones</button><button type="button" data-character-action="detect-relations" data-character-index="${(state.characters||[]).findIndex(x=>normalize(x.name||"")===key)}">🔎 Detectar relaciones</button></div>
       <div class="character-profile-meta">
+        ${known?.nameType&&known.nameType!=="nombre"?" · "+esc(known.nameType):""}
         ${data.appearances.length} aparición${data.appearances.length===1?"":"es"} · ${data.chapters.length} capítulo${data.chapters.length===1?"":"s"}
         · ${known?.desc?esc(known.desc):"Detectado automáticamente"}
       </div>
@@ -3852,6 +3861,57 @@ setTimeout(()=>restoreAppPanel(),60);
 if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js?v=11").catch(()=>{});
 </script>
 </body>
+
+<script>
+(function(){
+  function bindCharacterActions(){
+    const box=document.getElementById("characterProfiles");
+    if(!box || box.dataset.characterActionsBound==="1")return;
+    box.dataset.characterActionsBound="1";
+    box.addEventListener("click",function(ev){
+      const b=ev.target.closest("[data-character-action]");
+      if(!b)return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const i=Number(b.dataset.characterIndex);
+      if(!Number.isInteger(i) || i<0)return;
+      const action=b.dataset.characterAction;
+      try{
+        if(action==="edit") window.openCharacterEdit(i);
+        else if(action==="appearances") window.openCharacterAppearances(i);
+        else if(action==="relations") window.openCharacterRelations(i);
+        else if(action==="detect-relations") window.showCharacterRelationCandidates(i);
+      }catch(err){
+        console.error("Acción de ficha de personaje:",err);
+        alert("No se pudo abrir esta función. La novela no fue modificada.");
+      }
+    });
+  }
+
+  function exposeCharacterFunctions(){
+    [
+      "openCharacterEdit","closeCharacterEdit","confirmSaveCharacter","confirmDeleteCharacter",
+      "openCharacterAppearances","closeCharacterAppearances","characterAppearancePrev",
+      "characterAppearanceNext","goToCharacterAppearance","openCharacterRelations",
+      "closeCharacterRelations","showCharacterRelationCandidates","confirmAddCharacterRelation",
+      "confirmDeleteCharacterRelation","confirmAddCharacterAlias","confirmRemoveCharacterAlias"
+    ].forEach(function(n){
+      if(typeof window[n]!=="function" && typeof globalThis[n]==="function")window[n]=globalThis[n];
+    });
+    bindCharacterActions();
+  }
+
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",exposeCharacterFunctions);
+  else exposeCharacterFunctions();
+
+  // Rebind after the character list is re-rendered.
+  const observer=new MutationObserver(function(){
+    bindCharacterActions();
+  });
+  observer.observe(document.body,{subtree:true,childList:true});
+})();
+</script>
+
 </html>
 <script>
 document.addEventListener("DOMContentLoaded",function(){
