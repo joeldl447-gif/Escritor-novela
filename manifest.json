@@ -1,13 +1,13 @@
 {
-  "name": "Escritor — Novela",
-  "short_name": "Escritor",
-  "description": "Editor de novelas con mapa de Buenos Aires, puntos, notas, calles y búsqueda.",
-  "start_url": "./index.html?v=52",
-  "scope": "./",
-  "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#f4f5f7",
-  "theme_color": "#111827",
-  "lang": "es-AR",
-  "icons": []
+  "name":"Escritor — Novela",
+  "short_name":"Escritor",
+  "description":"Editor de novelas con mapa de Buenos Aires, puntos, notas, calles y búsqueda.",
+  "start_url":"./index.html?v=54",
+  "scope":"./",
+  "display":"standalone",
+  "orientation":"portrait",
+  "background_color":"#f4f5f7",
+  "theme_color":"#111827",
+  "lang":"es-AR",
+  "icons":[]
 }
