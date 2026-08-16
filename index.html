@@ -180,6 +180,20 @@ body.night #appMenu .menu-title{border-color:#333}
 .night .search-result:hover{background:#242424}
 .night .search-result{border-color:#444}
 
+.character-candidates{border:1px solid #d7d7d7;border-radius:10px;padding:12px;margin:10px 0;background:#fafafa}
+.character-candidates h3{margin:0 0 5px}
+.character-candidate{border-top:1px solid #ddd;padding:12px 0}
+.character-candidate:first-of-type{border-top:0}
+.character-candidate-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.character-confidence{font-size:11px;padding:4px 7px;border-radius:12px;background:#e7e9ee}
+.character-evidence{font-size:13px;color:#777;margin:5px 0}
+.character-evidence-block{background:#f0f0f0;border-radius:8px;padding:8px;margin-top:7px;line-height:1.4;cursor:pointer}
+.character-candidate-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.night .character-candidates{border-color:#444;background:#202020}
+.night .character-candidate{border-color:#444}
+.night .character-confidence{background:#333}
+.night .character-evidence-block{background:#292929}
+
 .character-profile{border:1px solid #ddd;border-radius:10px;padding:12px;margin:10px 0}
 .character-profile h3{margin:0 0 5px}
 .character-profile-meta{font-size:13px;color:#777;margin-bottom:8px}
@@ -1083,7 +1097,22 @@ function renderEntities(){
   cl.innerHTML=state.characters.length?state.characters.map(x=>"<p><b>"+esc(x.name)+"</b><br><span class='muted'>"+esc(x.desc||"")+"</span></p>").join(""):"<p class='muted'>Sin personajes.</p>";
   pl.innerHTML=state.places.length?state.places.map(x=>"<p><b>"+esc(x.name)+"</b><br><span class='muted'>"+esc(x.desc||"")+"</span></p>").join(""):"<p class='muted'>Sin lugares.</p>";
 }
-function addCharacter(){let n=prompt("Nombre del personaje:");if(!n)return;state.characters.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
+function addCharacter(){
+  const n=prompt("Nombre del personaje:");
+  if(!n)return;
+  const name=n.trim();
+  if(!name)return;
+  const desc=prompt("Descripción breve:")||"";
+  if(!confirm(`¿Crear la ficha de «${name}»?\n\nLa aplicación guardará el nombre y la descripción que ingresaste.`))return;
+  if((state.characters||[]).some(x=>normalize(x.name||"")===normalize(name))){
+    alert("Ese personaje ya existe.");
+    return;
+  }
+  state.characters.push({name,desc});
+  localStorage.setItem(KEY,JSON.stringify(state));
+  renderLibrary();
+  renderCharacterProfiles();
+}
 function addPlace(){let n=prompt("Nombre del lugar:");if(!n)return;state.places.push({name:n,desc:prompt("Descripción breve:")||""});localStorage.setItem(KEY,JSON.stringify(state));renderLibrary()}
 function showAllNotes(){let a=[];state.chapters.forEach(c=>Object.entries(c.notes||{}).forEach(([i,n])=>{if(n)a.push(c.name+" — Párrafo "+(Number(i)+1)+": "+n)}));alert(a.length?a.join("\\n\\n"):"No hay notas.")}
 
@@ -1696,17 +1725,21 @@ function analysisJump(source){
 }
 function safeJs(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
 function confirmAnalysisName(name){
-  if(!(state.characters||[]).some(x=>normalize(x.name||"")===normalize(name))){
-    state.characters.push({name,desc:"Detectado automáticamente en la novela"});
-    localStorage.setItem(KEY,JSON.stringify(state));
+  if((state.characters||[]).some(x=>normalize(x.name||"")===normalize(name))){
+    alert(`«${name}» ya existe en tus fichas.`);
+    return;
   }
-  analyzeTextLocally();renderAnalysis();load();
+  if(!confirm(`¿Agregar «${name}» a las fichas de personajes?\n\nLa aplicación no modificará ningún fragmento de la novela.`))return;
+  state.characters.push({name,desc:""});
+  localStorage.setItem(KEY,JSON.stringify(state));
+  analyzeTextLocally();renderAnalysis();load();renderCharacterProfiles();
 }
 function ignoreAnalysisName(name){
+  if(!confirm(`¿Ignorar el candidato «${name}»?\n\nNo se agregará a las fichas y el texto de la novela no será modificado.`))return;
   const key="escritor_analysis_ignored",a=JSON.parse(localStorage.getItem(key)||"[]");
   if(!a.some(x=>normalize(x)===normalize(name)))a.push(name);
   localStorage.setItem(key,JSON.stringify(a));
-  analyzeTextLocally();renderAnalysis();
+  analyzeTextLocally();renderAnalysis();renderCharacterProfiles();
 }
 function toggleAnalysisDetail(id){const e=$(id);if(e)e.classList.toggle("open")}
 
@@ -2768,16 +2801,168 @@ function characterProfileData(name,key){
   };
 }
 
+
+const CHARACTER_IGNORED_KEY="escritor_character_candidates_ignored_v1";
+
+function getIgnoredCharacterCandidates(){
+  try{
+    const a=JSON.parse(localStorage.getItem(CHARACTER_IGNORED_KEY)||"[]");
+    return Array.isArray(a)?a:[];
+  }catch(e){return []}
+}
+function isIgnoredCharacterCandidate(name){
+  const key=normalize(name);
+  return getIgnoredCharacterCandidates().some(x=>normalize(x)===key);
+}
+function ignoreCharacterCandidate(name){
+  if(!confirm(`¿Ignorar el candidato «${name}»?\n\nNo se agregará a tus fichas. Esta acción no modifica el texto de la novela.`))return;
+  const a=getIgnoredCharacterCandidates();
+  if(!a.some(x=>normalize(x)===normalize(name)))a.push(name);
+  localStorage.setItem(CHARACTER_IGNORED_KEY,JSON.stringify(a));
+  renderCharacterProfiles();
+}
+function confirmCharacterCandidate(name,source,count){
+  const exists=(state.characters||[]).some(x=>normalize(x.name||"")===normalize(name));
+  if(exists){
+    alert(`«${name}» ya existe en tus fichas.`);
+    return;
+  }
+  const ok=confirm(
+    `¿Agregar «${name}» a las fichas de personajes?\n\n`+
+    `Apariciones detectadas: ${count}\n`+
+    `Primera evidencia: ${source}\n\n`+
+    `La aplicación no modificará ningún fragmento de la novela. Solo creará una ficha básica con este nombre.`
+  );
+  if(!ok)return;
+  state.characters.push({name,desc:""});
+  localStorage.setItem(KEY,JSON.stringify(state));
+  renderCharacterProfiles();
+  renderLibrary();
+}
+function detectCharacterCandidates(){
+  const knownChars=(state.characters||[]).map(x=>String(x.name||"").trim()).filter(Boolean);
+  const knownPlaces=(state.places||[]).map(x=>String(x.name||"").trim()).filter(Boolean);
+  const ignored=getIgnoredCharacterCandidates().map(normalize);
+  const candidates=new Map();
+
+  // Words that are commonly capitalized but are not useful character candidates.
+  const obviousNonCharacters=new Set([
+    "Argentina","España","México","Chile","Uruguay","Brasil","Buenos Aires",
+    "Estados Unidos","Europa","América","Dios","Internet","WhatsApp",
+    "Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo",
+    "Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto",
+    "Septiembre","Octubre","Noviembre","Diciembre"
+  ].map(normalize));
+
+  function add(name,ci,pi,text,strong){
+    const clean=name.trim().replace(/^[¿¡"'“”‘’(\[]+|[,:;.!?"'“”‘’)\]]+$/g,"");
+    if(!clean)return;
+    const key=normalize(clean);
+    if(!key || ignored.includes(key))return;
+    if(knownChars.some(x=>normalize(x)===key))return;
+    if(knownPlaces.some(x=>normalize(x)===key))return;
+    if(obviousNonCharacters.has(key))return;
+    if(isStopName(clean))return;
+
+    let c=candidates.get(key);
+    if(!c){
+      c={name:clean,count:0,chapters:new Set(),evidence:[],signals:0,strong:0};
+      candidates.set(key,c);
+    }
+    c.count++;
+    c.chapters.add(ci);
+    if(strong)c.strong++;
+    if(c.evidence.length<5)c.evidence.push({ci,pi,text,strong});
+  }
+
+  state.chapters.forEach((ch,ci)=>{
+    searchTextOfChapter(ch).forEach((p,pi)=>{
+      // Do not treat every capitalized word as a character.
+      // Candidate requires repetition or a strong character-context signal.
+      const matches=p.match(/\b[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]{2,}(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]{2,})?\b/g)||[];
+      matches.forEach(raw=>{
+        const clean=raw.trim();
+        const contextual=hasAttribution(p,clean);
+        const dialogue=new RegExp("—\\s*"+searchEscReg(clean)+"\\b","i").test(p);
+        const action=new RegExp("\\b"+searchEscReg(clean)+"\\s+(?:entró|entro|salió|salio|llegó|llego|miró|miro|caminó|camino|corrió|corrio|respondió|respondio|preguntó|pregunto|gritó|grito|susurró|susurro|dijo|dice|preguntó|pregunto)\\b","i").test(p);
+        const strong=contextual||dialogue||action;
+        const firstWord=new RegExp("^\\s*"+searchEscReg(clean)+"\\b").test(p);
+        const occurrenceInParagraph=(p.match(new RegExp("\\b"+searchEscReg(clean)+"\\b","gi"))||[]).length;
+
+        // Strong evidence is enough. Otherwise require repeated occurrences
+        // and don't count a name only because it starts the paragraph.
+        if(strong || occurrenceInParagraph>=2 || (!firstWord && p.length>0)){
+          add(clean,ci,pi,p,strong);
+        }
+      });
+    });
+  });
+
+  const out=[];
+  candidates.forEach(c=>{
+    const chapterCount=c.chapters.size;
+    const score=Math.min(100,
+      (c.strong*30) +
+      Math.min(c.count,5)*10 +
+      Math.min(chapterCount,4)*12
+    );
+    // Require at least one strong contextual signal OR repeated appearance.
+    if(c.strong===0 && c.count<2)return;
+    if(score<30)return;
+    c.score=score;
+    c.confidence=score>=75?"alta":score>=50?"media":"baja";
+    c.chapters=[...c.chapters].sort((a,b)=>a-b);
+    out.push(c);
+  });
+  return out.sort((a,b)=>b.score-a.score||b.count-a.count).slice(0,50);
+}
+
 function renderCharacterProfiles(){
   const box=$("characterProfiles");if(!box)return;box.innerHTML="";
   const names=new Map();
   (state.characters||[]).forEach(x=>names.set(normalize(x.name||""),x.name));
-  (analysisState?.entities?.characters||[]).forEach(x=>{
-    const k=normalize(x.name||"");
-    if(k&&!names.has(k)&&x.confidence!=="posible")names.set(k,x.name);
-  });
+  const candidates=detectCharacterCandidates();
+
+  if(candidates.length){
+    const cbox=document.createElement("div");
+    cbox.className="character-candidates";
+    cbox.innerHTML=`<h3>🔎 Candidatos detectados</h3>
+      <div class="muted">Ya no se consideran personajes todas las palabras con mayúscula. Estos candidatos se basan en repetición y contexto narrativo. Ninguno se agrega automáticamente.</div>`;
+
+    candidates.forEach(c=>{
+      const d=document.createElement("div");
+      d.className="character-candidate";
+      const evidence=c.evidence[0];
+      const firstLabel=evidence?`${state.chapters[evidence.ci].name}, párrafo ${evidence.pi+1}`:"";
+      const evidenceHtml=c.evidence.map(e=>`
+        <div class="character-evidence-block" onclick="jumpSearchResult(${e.ci},${e.pi})">
+          📍 ${esc(state.chapters[e.ci].name)}, párrafo ${e.pi+1}<br>
+          ${esc(e.text.length>220?e.text.slice(0,220)+"…":e.text)}
+        </div>`).join("");
+      d.innerHTML=`
+        <div class="character-candidate-head">
+          <h3 style="margin:0">👤 ${esc(c.name)}</h3>
+          <span class="character-confidence">${esc(c.confidence)} · ${c.score}%</span>
+        </div>
+        <div class="character-evidence">
+          ${c.count} aparición${c.count===1?"":"es"} detectadas · ${c.chapters.length} capítulo${c.chapters.length===1?"":"s"}
+          ${c.strong?` · ${c.strong} señal${c.strong===1?"":"es"} de contexto`:""}
+        </div>
+        <div class="character-evidence">
+          Primera evidencia: ${esc(firstLabel)}
+        </div>
+        ${evidenceHtml}
+        <div class="character-candidate-actions">
+          <button type="button" onclick="confirmCharacterCandidate('${safeJs(c.name)}','${safeJs(firstLabel)}',${c.count})">✓ Agregar a personajes</button>
+          <button type="button" onclick="ignoreCharacterCandidate('${safeJs(c.name)}')">✕ Ignorar</button>
+        </div>`;
+      cbox.appendChild(d);
+    });
+    box.appendChild(cbox);
+  }
+
   if(!names.size){
-    box.innerHTML='<div class="muted">Todavía no hay personajes registrados o detectados.</div>';
+    if(!candidates.length)box.innerHTML='<div class="muted">Todavía no hay personajes registrados ni candidatos con suficiente evidencia.</div>';
     return;
   }
 
