@@ -2735,7 +2735,16 @@ function bindMapUI(){
   $("mapStreetDelete").addEventListener("click",deleteMapStreet);
 }
 
-function openCharacterProfiles(){renderCharacterProfiles();$("characterPanel").classList.add("open")}
+function openCharacterProfiles(){
+  $("characterPanel").classList.add("open");
+  try{
+    renderCharacterProfiles();
+  }catch(e){
+    console.error("Error en fichas de personajes:",e);
+    const box=$("characterProfiles");
+    if(box)box.innerHTML='<div class="muted">No se pudieron analizar los candidatos. La novela no fue modificada.</div>';
+  }
+}
 function closeCharacterProfiles(){$("characterPanel").classList.remove("open")}
 
 function characterProfileData(name,key){
@@ -2840,6 +2849,35 @@ function confirmCharacterCandidate(name,source,count){
   renderLibrary();
 }
 function detectCharacterCandidates(){
+  // These helpers must be local to the character-candidate detector.
+  // The similarly named helpers inside analyzeTextLocally() are not in scope here.
+  function isStopName(name){
+    const stopWords=new Set((
+      "el la los las un una unos unas al del de y o e que se su sus mi mis tu tus yo me te le lo nos les "+
+      "esto eso esta este estos estas aquello aquí aqui ahi allí alli adentro afuera arriba abajo antes después despues "+
+      "entonces luego ahora siempre nunca hoy ayer mañana bueno buena buenas buenos gracias hola adiós adios "+
+      "dijo dice digo decir respondió respondio preguntó pregunto pregunta contestó contesto gritó grito "+
+      "susurró susurro pensó penso miró miro observó observo habló hablo había habia hay fue era estaba están estan "+
+      "estoy estás estas como cómo porque porqué cuando cuándo donde dónde qué cual cuál quien quién pero aunque "+
+      "mientras sin con para por desde hasta sobre entre hacia sí si no también tambien solo sólo apenas quizá quizas "+
+      "tal vez mismo misma otro otra otros otras cosa cosas todo toda todos todas nada algo alguien nadie gente "+
+      "persona personas hombre mujer niño niña señor señora señorita chico chica muchacho muchacha abuelo abuela "+
+      "padre madre papá papa mamá mama hijo hija hermano hermana primo prima tío tio tía tia sobrino sobrina "+
+      "amigo amiga novio novia marido esposa esposo bebé bebe joven viejo vieja capítulo capitulo parte escena "+
+      "página pagina texto párrafo parrafo puerta ventana casa habitación habitacion calle noche día dia tarde vez "+
+      "veces lugar momento tiempo camino lado frente detrás detras dentro encima arrodillado arrodillada sentado "+
+      "sentada parado parada mirando hablando corriendo rápido rapido despacio bien mal mucho poco más mas menos"
+    ).split(/\\s+/).map(normalize).filter(Boolean));
+    return name.split(/\\s+/).some(w=>stopWords.has(normalize(w)));
+  }
+  function hasAttribution(text,name){
+    const n=searchEscReg(name);
+    return new RegExp(
+      "(?:\\b(?:dijo|dice|preguntó|pregunto|respondió|respondio|contestó|contesto|gritó|grito|susurró|susurro|pensó|penso|miró|miro|observó|observo|llamó|llamo|abrazó|abrazo|entró|entro|salió|salio|llegó|llego|vio|conoció|conocio)\\s+"+n+"\\b)|"+
+      "(?:\\b"+n+"\\s+(?:dijo|dice|preguntó|pregunto|respondió|respondio|contestó|contesto|gritó|grito|susurró|susurro|pensó|penso|miró|miro|observó|observo|llamó|llamo|abrazó|abrazo)\\b)","i"
+    ).test(text);
+  }
+
   const knownChars=(state.characters||[]).map(x=>String(x.name||"").trim()).filter(Boolean);
   const knownPlaces=(state.places||[]).map(x=>String(x.name||"").trim()).filter(Boolean);
   const ignored=getIgnoredCharacterCandidates().map(normalize);
