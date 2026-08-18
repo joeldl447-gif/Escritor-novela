@@ -470,6 +470,28 @@ body.night .paragraph-status-review{background:#4a4325}
 body.night .paragraph-status-problem{background:#4b2c2c}
 body.night .paragraph-status-done{background:#254234}
 
+
+/* V57 — Conexiones de la novela */
+#graphTools{position:absolute;top:62px;left:12px;right:12px;z-index:8;display:flex;gap:6px;flex-wrap:wrap;padding:7px;background:#fff;border:1px solid #ddd;border-radius:10px}
+#graphTools[hidden],#graphDetail[hidden],#graphConnectBox[hidden],#graphSuggestions[hidden]{display:none}
+#graphTools input,#graphTools select{min-width:170px;flex:1}
+.graph-node.event{border-left:4px solid #b8862b}
+.graph-node.object{border-left:4px solid #7b7b7b}
+.graph-node.concept{border-left:4px solid #3f82a8}
+.graph-node.selected{box-shadow:0 0 0 3px #6aa9e8,0 4px 14px #0002}
+.graph-node.dimmed{opacity:.22}
+.graph-edge-label{font-size:10px;fill:#777;paint-order:stroke;stroke:#fff;stroke-width:3px}
+#graphDetail,#graphConnectBox,#graphSuggestions{position:absolute;right:12px;top:64px;z-index:10;width:min(360px,calc(100% - 24px));max-height:calc(100% - 140px);overflow:auto;background:#fff;color:#222;border:1px solid #ccc;border-radius:12px;padding:12px;box-shadow:0 8px 30px #0003}
+#graphDetail h3,#graphConnectBox h3,#graphSuggestions h3{margin:0 0 8px}
+.graph-detail-actions,.graph-connect-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.graph-suggestion{border-top:1px solid #ddd;padding:9px 0}
+.graph-suggestion:first-child{border-top:0}
+.graph-relation-pill{display:inline-block;padding:3px 7px;border-radius:99px;background:#eee;font-size:11px;margin:2px}
+.night #graphTools,.night #graphDetail,.night #graphConnectBox,.night #graphSuggestions{background:#202020;color:#eee;border-color:#444}
+.night #graphTools input,.night #graphTools select{background:#151515;color:#eee;border-color:#444}
+.night .graph-edge-label{fill:#ccc;stroke:#202020}
+.night .graph-suggestion{border-color:#444}
+
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -922,15 +944,35 @@ body.night .paragraph-status-done{background:#254234}
   <div id="graphHead">
     <button class="icon" onclick="closeGraph()">←</button>
     <h2>Conexiones de la novela</h2>
-    <button onclick="graphAutoLayout()">Reordenar</button>
-    <button onclick="graphCenter()">Centrar</button>
+    <button type="button" onclick="graphAutoLayout(true)">Reordenar</button>
+    <button type="button" onclick="graphCenter()">Centrar</button>
+    <button type="button" onclick="openGraphSearch()">🔎 Buscar</button>
+    <button type="button" onclick="openGraphConnect()">🔗 Conectar</button>
+    <button type="button" onclick="graphSuggestConnections()">🧠 Detectar</button>
+  </div>
+  <div id="graphTools" hidden>
+    <input id="graphSearchInput" type="search" placeholder="Buscar personaje, lugar, capítulo…" oninput="drawGraph()">
+    <select id="graphTypeFilter" onchange="drawGraph()">
+      <option value="all">Todos los nodos</option>
+      <option value="chapter">📖 Capítulos</option>
+      <option value="character">👤 Personajes</option>
+      <option value="place">📍 Lugares</option>
+      <option value="event">📅 Acontecimientos</option>
+      <option value="object">🧩 Objetos</option>
+      <option value="concept">💡 Conceptos</option>
+      <option value="tag">🔖 Enlaces</option>
+    </select>
+    <button type="button" onclick="clearGraphSearch()">Limpiar</button>
   </div>
   <div id="graphCanvas">
     <svg id="graphSvg"></svg>
-    <div id="graphHint">Arrastrá el espacio para desplazarte · pellizcá para zoom</div>
-    <div id="graphZoom"><button onclick="graphZoomBy(1.2)">＋</button><button onclick="graphZoomBy(.83)">−</button><button onclick="graphResetView()">100%</button></div>
-    <div class="graph-legend">📘 Capítulo &nbsp; 👤 Personaje &nbsp; 📍 Lugar<br>Las líneas muestran conexiones.</div>
+    <div id="graphHint">Arrastrá el espacio para desplazarte · pellizcá para zoom · arrastrá los nodos para moverlos</div>
+    <div id="graphZoom"><button type="button" onclick="graphZoomBy(1.2)">＋</button><button type="button" onclick="graphZoomBy(.83)">−</button><button type="button" onclick="graphResetView()">100%</button></div>
+    <div class="graph-legend">📖 Capítulo · 👤 Personaje · 📍 Lugar<br>📅 Acontecimiento · 🧩 Objeto · 💡 Concepto</div>
     <div id="graphNodes"></div>
+    <aside id="graphDetail" hidden></aside>
+    <div id="graphConnectBox" hidden></div>
+    <div id="graphSuggestions" hidden></div>
   </div>
 </section>
 
@@ -1011,6 +1053,7 @@ state.places=state.places||[];
 state.history=state.history||{};
 state.timeline=Array.isArray(state.timeline)?state.timeline:[];
 ensureMapState();
+ensureGraphState();
 state.editorZoom=Number(state.editorZoom)||1;
 state.editorZoom=Math.max(.6,Math.min(1.5,state.editorZoom));
 let selected=null;
@@ -1738,214 +1781,375 @@ ${context}`;
   }finally{$("aiStatus").textContent="IA local gratuita"}
 }
 
-let graphData={nodes:[],edges:[]};
 
-function openGraph(){document.body.classList.add("graph-open");renderGraph()}
-function closeGraph(){document.body.classList.remove("graph-open")}
-function nodeKey(type,id){return type+":"+id}
-function buildGraphData(){
-  const nodes=[],edges=[],seen=new Set();
-  const add=(type,id,label,meta)=>{
-    const key=nodeKey(type,id);if(seen.has(key))return key;
-    seen.add(key);nodes.push({id:key,type,label,meta});return key;
-  };
-  state.chapters.forEach((c,i)=>{
-    const ck=add("chapter",i,c.name,(textOf(c.html).split(/\s+/).filter(Boolean).length)+" palabras");
-    const txt=textOf(c.html);
-    (state.characters||[]).forEach((p,j)=>{
-      if(p.name && txt.toLowerCase().includes(p.name.toLowerCase())){
-        const pk=add("character",j,p.name,p.desc||"Personaje");
-        edges.push([ck,pk]);
-      }
-    });
-    (state.places||[]).forEach((p,j)=>{
-      if(p.name && txt.toLowerCase().includes(p.name.toLowerCase())){
-        const pk=add("place",j,p.name,p.desc||"Lugar");
-        edges.push([ck,pk]);
-      }
-    });
-    // Wiki-style links: [[Nombre]] create lightweight tag nodes if no entity exists.
-    const links=[...txt.matchAll(/\[\[([^\]]+)\]\]/g)].map(m=>m[1].trim()).filter(Boolean);
-    links.forEach((label)=>{
-      let idx=(state.characters||[]).findIndex(x=>x.name?.toLowerCase()===label.toLowerCase());
-      if(idx>=0){let k=add("character",idx,state.characters[idx].name,state.characters[idx].desc||"Personaje");edges.push([ck,k]);return}
-      idx=(state.places||[]).findIndex(x=>x.name?.toLowerCase()===label.toLowerCase());
-      if(idx>=0){let k=add("place",idx,state.places[idx].name,state.places[idx].desc||"Lugar");edges.push([ck,k]);return}
-      const tk=add("tag",label,label,"Enlace [[...]]");edges.push([ck,tk]);
-    });
-  });
-  // Connect characters and places when they share a chapter.
-  const chapterSets={};
-  state.chapters.forEach((c,ci)=>{
-    let txt=textOf(c.html).toLowerCase();
-    let chars=(state.characters||[]).map((p,j)=>p.name&&txt.includes(p.name.toLowerCase())?j:null).filter(x=>x!==null);
-    let places=(state.places||[]).map((p,j)=>p.name&&txt.includes(p.name.toLowerCase())?j:null).filter(x=>x!==null);
-    chars.forEach(a=>places.forEach(b=>edges.push([nodeKey("character",a),nodeKey("place",b)])));
-  });
-  const unique=[];const es=new Set();
-  edges.forEach(([a,b])=>{if(a===b)return;let k=[a,b].sort().join("|");if(!es.has(k)){es.add(k);unique.push([a,b])}});
-  graphData={nodes,edges:unique};
+function ensureGraphState(){
+  if(!state.graph||typeof state.graph!=="object")state.graph={};
+  if(!state.graph.positions||typeof state.graph.positions!=="object")state.graph.positions={};
+  if(!Array.isArray(state.graph.customEdges))state.graph.customEdges=[];
+  if(!Array.isArray(state.graph.suggestions))state.graph.suggestions=[];
+  if(!Array.isArray(state.graph.hiddenTypes))state.graph.hiddenTypes=[];
 }
-
-
+function saveGraphState(){
+  ensureGraphState();
+  localStorage.setItem(KEY,JSON.stringify(state));
+}
+let graphData={nodes:[],edges:[]};
 let graphView={x:0,y:0,scale:1};
 let graphBasePos={};
 let graphPointers=new Map();
 let graphPanStart=null;
 let graphPinchStart=null;
 let graphDragNode=null;
+let graphSelectedNodeId=null;
+let graphSelectedEdge=null;
 
-function graphAutoLayout(){
+const GRAPH_TYPES={
+ chapter:{label:"📖 Capítulo",meta:"Capítulo"},
+ character:{label:"👤 Personaje",meta:"Personaje"},
+ place:{label:"📍 Lugar",meta:"Lugar"},
+ event:{label:"📅 Acontecimiento",meta:"Acontecimiento"},
+ object:{label:"🧩 Objeto",meta:"Objeto"},
+ concept:{label:"💡 Concepto",meta:"Concepto"},
+ tag:{label:"🔖 Enlace",meta:"Enlace"}
+};
+const GRAPH_RELATIONS=[
+ "aparece en","participa en","vive en","se encuentra con","es familiar de",
+ "es aliado de","es enemigo de","conoce a","ocurre en","pertenece a",
+ "está relacionado con","menciona","causa","precede a","sucede a","otra"
+];
+function graphNodeKey(type,id){return type+":"+id}
+function graphNodeMeta(type,id){
+  if(type==="chapter"){const c=state.chapters[id];return c?`${chapterWordCount(c)} palabras · ${paragraphCount(c)} párrafos`:"Capítulo"}
+  if(type==="character"){const c=state.characters[id];return c?.desc||"Personaje"}
+  if(type==="place"){const p=state.places[id];return p?.desc||"Lugar"}
+  return GRAPH_TYPES[type]?.meta||"";
+}
+function graphAddNode(nodes,seen,type,id,label,meta){
+  const key=graphNodeKey(type,id);if(seen.has(key))return key;
+  seen.add(key);nodes.push({id:key,type,label:String(label||"Sin nombre"),meta:String(meta||"")});return key;
+}
+function graphAddAutoEdge(edges,a,b,type,source){
+  if(!a||!b||a===b)return;
+  edges.push({id:`auto:${[a,b].sort().join("|")}:${type}`,a,b,type,source:"auto"});
+}
+function graphCustomEdgeKey(a,b,type){return [a,b].sort().join("|")+"|"+type}
+function buildGraphData(){
+  ensureGraphState();
+  const nodes=[],edges=[],seen=new Set(),nodeMap=new Map();
+  const add=(type,id,label,meta)=>{const k=graphAddNode(nodes,seen,type,id,label,meta);nodeMap.set(k,true);return k};
+  state.chapters.forEach((c,ci)=>{
+    const ck=add("chapter",ci,c.name,graphNodeMeta("chapter",ci));
+    const div=document.createElement("div");div.innerHTML=c.html||"";
+    const paragraphs=[...div.querySelectorAll("p")];
+    const txt=textOf(c.html);
+    (state.characters||[]).forEach((p,pi)=>{
+      if(p.name&&normalize(txt).includes(normalize(p.name))){
+        const pk=add("character",pi,p.name,graphNodeMeta("character",pi));
+        graphAddAutoEdge(edges,ck,pk,"aparece en",`cap:${ci}`);
+      }
+    });
+    (state.places||[]).forEach((p,pi)=>{
+      if(p.name&&normalize(txt).includes(normalize(p.name))){
+        const pk=add("place",pi,p.name,graphNodeMeta("place",pi));
+        graphAddAutoEdge(edges,ck,pk,"menciona",`cap:${ci}`);
+      }
+    });
+    // Known characters/places that share the same paragraph get a meaningful
+    // auto-edge. It is only visual evidence; it is not persisted as canon.
+    paragraphs.forEach((p,pi)=>{
+      const raw=p.innerText||p.textContent||"",n=normalize(raw);
+      const chars=(state.characters||[]).map((x,j)=>x.name&&n.includes(normalize(x.name))?add("character",j,x.name,graphNodeMeta("character",j)):null).filter(Boolean);
+      const places=(state.places||[]).map((x,j)=>x.name&&n.includes(normalize(x.name))?add("place",j,x.name,graphNodeMeta("place",j)):null).filter(Boolean);
+      for(let i=0;i<chars.length;i++)for(let j=i+1;j<chars.length;j++)graphAddAutoEdge(edges,chars[i],chars[j],"comparten párrafo",`cap:${ci}:p:${pi}`);
+      chars.forEach(ch=>places.forEach(pl=>graphAddAutoEdge(edges,ch,pl,"comparten párrafo",`cap:${ci}:p:${pi}`)));
+    });
+    const links=[...txt.matchAll(/\[\[([^\]]+)\]\]/g)].map(m=>m[1].trim()).filter(Boolean);
+    links.forEach(label=>{
+      const ci2=(state.characters||[]).findIndex(x=>normalize(x.name||"")===normalize(label));
+      if(ci2>=0){graphAddAutoEdge(edges,ck,add("character",ci2,state.characters[ci2].name,graphNodeMeta("character",ci2)),"enlace",`cap:${ci}`);return}
+      const pi2=(state.places||[]).findIndex(x=>normalize(x.name||"")===normalize(label));
+      if(pi2>=0){graphAddAutoEdge(edges,ck,add("place",pi2,state.places[pi2].name,graphNodeMeta("place",pi2)),"enlace",`cap:${ci}`);return}
+      graphAddAutoEdge(edges,ck,add("tag",label,label,"Enlace [[...]]"),"enlace",`cap:${ci}`);
+    });
+  });
+  // Confirmed custom connections override the automatic graph.
+  state.graph.customEdges.forEach(e=>{
+    if(!e||!e.a||!e.b)return;
+    const [at,ai]=e.a.split(":"),[bt,bi]=e.b.split(":");
+    const findLabel=(type,id)=>{
+      if(type==="chapter")return state.chapters[Number(id)]?.name||id;
+      if(type==="character")return state.characters[Number(id)]?.name||id;
+      if(type==="place")return state.places[Number(id)]?.name||id;
+      return e.labels?.[type]||id;
+    };
+    add(at,ai,findLabel(at,ai),graphNodeMeta(at,Number(ai)));
+    add(bt,bi,findLabel(bt,bi),graphNodeMeta(bt,Number(bi)));
+    edges.push({id:e.id||`custom:${e.a}|${e.b}|${e.type}`,a:e.a,b:e.b,type:e.type||"está relacionado con",source:"custom",sourceRef:e});
+  });
+  const unique=[],seenEdges=new Set();
+  edges.forEach(e=>{
+    if(!nodeMap.has(e.a)||!nodeMap.has(e.b)||e.a===e.b)return;
+    const key=e.source==="custom"?(e.id||graphCustomEdgeKey(e.a,e.b,e.type)):`${[e.a,e.b].sort().join("|")}|${e.type}`;
+    if(!seenEdges.has(key)){seenEdges.add(key);unique.push(e)}
+  });
+  graphData={nodes,edges:unique};
+}
+function graphVisibleNodes(){
+  const q=normalize($("graphSearchInput")?.value||"");
+  const type=$("graphTypeFilter")?.value||"all";
+  return graphData.nodes.filter(n=>{
+    if(type!=="all"&&n.type!==type)return false;
+    if(!q)return true;
+    return normalize(`${n.label} ${n.meta}`).includes(q);
+  });
+}
+function graphVisibleEdges(nodes){
+  const ids=new Set(nodes.map(n=>n.id));
+  return graphData.edges.filter(e=>ids.has(e.a)&&ids.has(e.b));
+}
+function graphPositionFor(id,index,total,w,h){
+  ensureGraphState();
+  const saved=state.graph.positions[id];
+  if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))return {x:saved.x,y:saved.y};
+  const a=(index/Math.max(1,total))*Math.PI*2;
+  return {x:w/2+Math.cos(a)*Math.min(360,w*.38),y:h/2+Math.sin(a)*Math.min(240,h*.34)};
+}
+function graphAutoLayout(confirmIt=true){
+  ensureGraphState();
+  if(confirmIt && !confirm("¿Reordenar automáticamente todos los nodos?\n\nSe conservarán las conexiones, pero se reemplazarán las posiciones manuales."))return;
   const c=$("graphCanvas"),w=c.clientWidth,h=c.clientHeight;
   buildGraphData();
-  const center={x:w/2,y:h/2};
-  const chapters=graphData.nodes.filter(n=>n.type==="chapter");
-  const others=graphData.nodes.filter(n=>n.type!=="chapter");
   const pos={};
-  chapters.forEach((n,i)=>{
-    let a=(i/Math.max(1,chapters.length))*Math.PI*2;
-    pos[n.id]={x:center.x+Math.cos(a)*Math.min(280,w*.28),y:center.y+Math.sin(a)*Math.min(180,h*.28)}
+  const groups={chapter:[],character:[],place:[],event:[],object:[],concept:[],tag:[]};
+  graphData.nodes.forEach(n=>(groups[n.type]||groups.tag).push(n));
+  const centers={
+    chapter:{x:w*.50,y:h*.25},character:{x:w*.25,y:h*.52},place:{x:w*.75,y:h*.52},
+    event:{x:w*.50,y:h*.68},object:{x:w*.25,y:h*.78},concept:{x:w*.75,y:h*.78},tag:{x:w*.50,y:h*.50}
+  };
+  Object.entries(groups).forEach(([type,arr])=>{
+    arr.forEach((n,i)=>{
+      const center=centers[type]||centers.tag,rad=Math.min(180,Math.max(80,Math.min(w,h)*.22));
+      const a=(i/Math.max(1,arr.length))*Math.PI*2;
+      pos[n.id]={x:center.x+Math.cos(a)*rad,y:center.y+Math.sin(a)*rad*.65};
+    });
   });
-  others.forEach((n,i)=>{
-    let a=(i/Math.max(1,others.length))*Math.PI*2;
-    pos[n.id]={x:center.x+Math.cos(a)*Math.min(430,w*.42),y:center.y+Math.sin(a)*Math.min(260,h*.38)}
-  });
-  graphBasePos=pos;
-  graphView={x:0,y:0,scale:1};
-  drawGraph();
+  state.graph.positions=pos;graphBasePos=pos;graphView={x:0,y:0,scale:1};
+  saveGraphState();drawGraph();
 }
 function graphCenter(){
-  const c=$("graphCanvas");
-  const xs=Object.values(graphBasePos).map(p=>p.x),ys=Object.values(graphBasePos).map(p=>p.y);
-  if(!xs.length){graphAutoLayout();return}
+  const c=$("graphCanvas");const vals=Object.values(graphBasePos);
+  if(!vals.length){graphAutoLayout(false);return}
+  const xs=vals.map(p=>p.x),ys=vals.map(p=>p.y);
   const cx=(Math.min(...xs)+Math.max(...xs))/2,cy=(Math.min(...ys)+Math.max(...ys))/2;
-  graphView.x=c.clientWidth/2-cx*graphView.scale;
-  graphView.y=c.clientHeight/2-cy*graphView.scale;
-  drawGraph();
+  graphView.x=c.clientWidth/2-cx*graphView.scale;graphView.y=c.clientHeight/2-cy*graphView.scale;drawGraph();
 }
 function graphResetView(){graphView={x:0,y:0,scale:1};graphCenter()}
 function graphZoomBy(factor,anchorX,anchorY){
-  const c=$("graphCanvas"),ax=anchorX??c.clientWidth/2,ay=anchorY??c.clientHeight/2;
-  const old=graphView.scale,next=Math.max(.35,Math.min(2.5,old*factor));
+  const c=$("graphCanvas"),ax=anchorX??c.clientWidth/2,ay=anchorY??c.clientHeight/2,old=graphView.scale,next=Math.max(.35,Math.min(3,old*factor));
   if(next===old)return;
-  graphView.x=ax-(ax-graphView.x)*(next/old);
-  graphView.y=ay-(ay-graphView.y)*(next/old);
-  graphView.scale=next;drawGraph();
+  graphView.x=ax-(ax-graphView.x)*(next/old);graphView.y=ay-(ay-graphView.y)*(next/old);graphView.scale=next;drawGraph();
 }
 function graphScreen(p){return{x:p.x*graphView.scale+graphView.x,y:p.y*graphView.scale+graphView.y}}
 function graphWorld(x,y){return{x:(x-graphView.x)/graphView.scale,y:(y-graphView.y)/graphView.scale}}
-
+function graphNodeIcon(type){return GRAPH_TYPES[type]?.label?.split(" ")[0]||"🔖"}
+function graphEdgeColor(e){return e.source==="custom"?"#6aa9e8":"#9aa1aa"}
 function drawGraph(){
-  const svg=$("graphSvg"),box=$("graphNodes"),c=$("graphCanvas");
+  ensureGraphState();buildGraphData();
+  const svg=$("graphSvg"),box=$("graphNodes"),c=$("graphCanvas");if(!svg||!box)return;
   svg.innerHTML="";box.innerHTML="";
+  const visible=graphVisibleNodes(),edges=graphVisibleEdges(visible),ids=new Set(visible.map(n=>n.id));
   const w=c.clientWidth,h=c.clientHeight;svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
-  graphData.edges.forEach(([a,b])=>{
-    if(!graphBasePos[a]||!graphBasePos[b])return;
-    const A=graphScreen(graphBasePos[a]),B=graphScreen(graphBasePos[b]);
+  edges.forEach(e=>{
+    const a=graphBasePos[e.a],b=graphBasePos[e.b];if(!a||!b)return;
+    const A=graphScreen(a),B=graphScreen(b);
     const line=document.createElementNS("http://www.w3.org/2000/svg","line");
     line.setAttribute("x1",A.x);line.setAttribute("y1",A.y);line.setAttribute("x2",B.x);line.setAttribute("y2",B.y);
-    line.setAttribute("stroke",document.body.classList.contains("night")?"#666":"#aab2bf");
-    line.setAttribute("stroke-width",Math.max(1,2*graphView.scale));svg.appendChild(line);
+    line.setAttribute("stroke",graphEdgeColor(e));line.setAttribute("stroke-width",Math.max(1,2*graphView.scale));
+    line.setAttribute("data-edge-id",e.id);
+    svg.appendChild(line);
+    if(e.source==="custom"){
+      const tx=document.createElementNS("http://www.w3.org/2000/svg","text");
+      tx.setAttribute("x",(A.x+B.x)/2);tx.setAttribute("y",(A.y+B.y)/2-4);tx.setAttribute("text-anchor","middle");
+      tx.setAttribute("class","graph-edge-label");tx.textContent=e.type;svg.appendChild(tx);
+    }
   });
-  graphData.nodes.forEach(n=>{
-    const p=graphScreen(graphBasePos[n.id]);
-    let d=document.createElement("div");d.className="graph-node "+n.type;d.dataset.nodeId=n.id;
-    d.style.left=(p.x-70)+"px";d.style.top=(p.y-28)+"px";
-    d.style.transform=`scale(${graphView.scale})`;d.style.transformOrigin="center center";
-    d.innerHTML="<strong>"+esc(n.label)+"</strong><small>"+esc(n.meta||"")+"</small>";
+  visible.forEach(n=>{
+    if(!graphBasePos[n.id])graphBasePos[n.id]=graphPositionFor(n.id,visible.indexOf(n),visible.length,w,h);
+    const p=graphScreen(graphBasePos[n.id]),d=document.createElement("div");
+    d.className="graph-node "+n.type+(graphSelectedNodeId===n.id?" selected":"");d.dataset.nodeId=n.id;
+    d.style.left=(p.x-70)+"px";d.style.top=(p.y-28)+"px";d.style.transform=`scale(${graphView.scale})`;d.style.transformOrigin="center center";
+    d.innerHTML=`<strong>${graphNodeIcon(n.type)} ${esc(n.label)}</strong><small>${esc(n.meta)}</small>`;
     d.addEventListener("pointerdown",e=>graphNodePointerDown(e,n));
     d.addEventListener("click",e=>{if(!d.dataset.moved)graphNodeClick(n);d.dataset.moved=""});
     box.appendChild(d);
   });
+  graphRenderDetail();
 }
-
 function graphNodePointerDown(e,n){
-  e.stopPropagation();
-  const d=e.currentTarget;
-  graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  graphDragNode={id:n.id,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,
-    origX:graphBasePos[n.id].x,origY:graphBasePos[n.id].y,el:d,moved:false};
-  d.setPointerCapture?.(e.pointerId);
-  d.style.cursor="grabbing";
+  e.stopPropagation();const d=e.currentTarget;graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  graphDragNode={id:n.id,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,origX:graphBasePos[n.id]?.x||0,origY:graphBasePos[n.id]?.y||0,el:d,moved:false};
+  d.setPointerCapture?.(e.pointerId);d.style.cursor="grabbing";
 }
 function graphPointerDown(e){
-  if(e.target.closest(".graph-node"))return;
+  if(e.target.closest(".graph-node")||e.target.closest("#graphDetail")||e.target.closest("#graphConnectBox")||e.target.closest("#graphSuggestions"))return;
   graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(graphPointers.size===1){
-    graphPanStart={x:e.clientX,y:e.clientY,viewX:graphView.x,viewY:graphView.y};
-    $("graphCanvas").classList.add("panning");
-    $("graphCanvas").setPointerCapture?.(e.pointerId);
-  }else if(graphPointers.size===2){
-    const pts=[...graphPointers.values()];
-    graphPinchStart={dist:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),scale:graphView.scale};
-    graphPanStart=null;
-  }
+  if(graphPointers.size===1){graphPanStart={x:e.clientX,y:e.clientY,viewX:graphView.x,viewY:graphView.y};$("graphCanvas").classList.add("panning");$("graphCanvas").setPointerCapture?.(e.pointerId)}
+  else if(graphPointers.size===2){const pts=[...graphPointers.values()];graphPinchStart={dist:Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),scale:graphView.scale};graphPanStart=null}
 }
 function graphPointerMove(e){
-  if(graphDragNode && graphDragNode.pointerId===e.pointerId){
-    const dx=(e.clientX-graphDragNode.startX)/graphView.scale;
-    const dy=(e.clientY-graphDragNode.startY)/graphView.scale;
+  if(graphDragNode&&graphDragNode.pointerId===e.pointerId){
+    const dx=(e.clientX-graphDragNode.startX)/graphView.scale,dy=(e.clientY-graphDragNode.startY)/graphView.scale;
     if(Math.hypot(dx,dy)>4)graphDragNode.moved=true;
-    graphBasePos[graphDragNode.id].x=graphDragNode.origX+dx;
-    graphBasePos[graphDragNode.id].y=graphDragNode.origY+dy;
-    drawGraph();
-    const node=document.querySelector(`[data-node-id="${CSS.escape(graphDragNode.id)}"]`);
-    if(node)node.dataset.moved=graphDragNode.moved?"1":"";
+    graphBasePos[graphDragNode.id].x=graphDragNode.origX+dx;graphBasePos[graphDragNode.id].y=graphDragNode.origY+dy;drawGraph();
+    const node=document.querySelector(`[data-node-id="${CSS.escape(graphDragNode.id)}"]`);if(node)node.dataset.moved=graphDragNode.moved?"1":"";
     return;
   }
-  if(!graphPointers.has(e.pointerId))return;
-  graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(graphPointers.size===1 && graphPanStart){
-    graphView.x=graphPanStart.viewX+(e.clientX-graphPanStart.x);
-    graphView.y=graphPanStart.viewY+(e.clientY-graphPanStart.y);
-    drawGraph();
-  }else if(graphPointers.size===2 && graphPinchStart){
-    const pts=[...graphPointers.values()];
-    const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
-    const factor=dist/graphPinchStart.dist,old=graphView.scale;
-    const next=Math.max(.35,Math.min(2.5,graphPinchStart.scale*factor));
-    const r=$("graphCanvas").getBoundingClientRect();
-    const mx=(pts[0].x+pts[1].x)/2-r.left,my=(pts[0].y+pts[1].y)/2-r.top;
-    graphView.x=mx-(mx-graphView.x)*(next/old);graphView.y=my-(my-graphView.y)*(next/old);
-    graphView.scale=next;drawGraph();
+  if(!graphPointers.has(e.pointerId))return;graphPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(graphPointers.size===1&&graphPanStart){graphView.x=graphPanStart.viewX+(e.clientX-graphPanStart.x);graphView.y=graphPanStart.viewY+(e.clientY-graphPanStart.y);drawGraph()}
+  else if(graphPointers.size===2&&graphPinchStart){
+    const pts=[...graphPointers.values()],dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),old=graphView.scale,next=Math.max(.35,Math.min(3,graphPinchStart.scale*(dist/graphPinchStart.dist))),r=$("graphCanvas").getBoundingClientRect(),mx=(pts[0].x+pts[1].x)/2-r.left,my=(pts[0].y+pts[1].y)/2-r.top;
+    graphView.x=mx-(mx-graphView.x)*(next/old);graphView.y=my-(my-graphView.y)*(next/old);graphView.scale=next;drawGraph();
   }
 }
 function graphPointerUp(e){
-  if(graphDragNode && graphDragNode.pointerId===e.pointerId){
-    const moved=graphDragNode.moved;
-    graphDragNode.el.style.cursor="";
-    graphDragNode=null;
-    graphPointers.delete(e.pointerId);
-    if(moved)e.preventDefault();
-    return;
+  if(graphDragNode&&graphDragNode.pointerId===e.pointerId){
+    const moved=graphDragNode.moved;graphDragNode.el.style.cursor="";graphDragNode=null;graphPointers.delete(e.pointerId);
+    if(moved){state.graph.positions=state.graph.positions||{};state.graph.positions=Object.assign(state.graph.positions,graphBasePos);saveGraphState();e.preventDefault()}return;
   }
   graphPointers.delete(e.pointerId);
-  if(graphPointers.size===0){
-    graphPanStart=null;graphPinchStart=null;$("graphCanvas").classList.remove("panning");
-  }else if(graphPointers.size===1){
-    const p=[...graphPointers.values()][0];
-    graphPanStart={x:p.x,y:p.y,viewX:graphView.x,viewY:graphView.y};graphPinchStart=null;
-  }
+  if(graphPointers.size===0){graphPanStart=null;graphPinchStart=null;$("graphCanvas").classList.remove("panning")}
+  else if(graphPointers.size===1){const p=[...graphPointers.values()][0];graphPanStart={x:p.x,y:p.y,viewX:graphView.x,viewY:graphView.y};graphPinchStart=null}
 }
-function graphWheel(e){
-  e.preventDefault();
-  const r=$("graphCanvas").getBoundingClientRect();
-  graphZoomBy(e.deltaY<0?1.12:.89,e.clientX-r.left,e.clientY-r.top);
+function graphWheel(e){e.preventDefault();const r=$("graphCanvas").getBoundingClientRect();graphZoomBy(e.deltaY<0?1.12:.89,e.clientX-r.left,e.clientY-r.top)}
+function openGraph(){ensureGraphState();document.body.classList.add("graph-open");graphLoadPositions();drawGraph();graphCenter()}
+function closeGraph(){document.body.classList.remove("graph-open");graphCloseOverlays()}
+function renderGraph(){openGraph()}
+function graphLoadPositions(){
+  ensureGraphState();buildGraphData();
+  const c=$("graphCanvas"),w=c.clientWidth,h=c.clientHeight,old=state.graph.positions||{},pos={};
+  graphData.nodes.forEach((n,i)=>pos[n.id]=old[n.id]&&Number.isFinite(old[n.id].x)&&Number.isFinite(old[n.id].y)?old[n.id]:graphPositionFor(n.id,i,graphData.nodes.length,w,h));
+  state.graph.positions=pos;graphBasePos=pos;
+  saveGraphState();
+}
+function graphAutoLayout(confirmIt=true){
+  ensureGraphState();
+  if(confirmIt&&!confirm("¿Reordenar automáticamente todos los nodos?\n\nSe reemplazarán las posiciones manuales, pero no las conexiones."))return;
+  const c=$("graphCanvas"),w=c.clientWidth,h=c.clientHeight;buildGraphData();
+  const groups={chapter:[],character:[],place:[],event:[],object:[],concept:[],tag:[]};graphData.nodes.forEach(n=>(groups[n.type]||groups.tag).push(n));
+  const centers={chapter:{x:w*.5,y:h*.22},character:{x:w*.25,y:h*.48},place:{x:w*.75,y:h*.48},event:{x:w*.5,y:h*.63},object:{x:w*.25,y:h*.78},concept:{x:w*.75,y:h*.78},tag:{x:w*.5,y:h*.82}};
+  const pos={};Object.entries(groups).forEach(([type,arr])=>arr.forEach((n,i)=>{const c0=centers[type]||centers.tag,a=(i/Math.max(1,arr.length))*Math.PI*2,r=Math.min(170,Math.max(70,Math.min(w,h)*.20));pos[n.id]={x:c0.x+Math.cos(a)*r,y:c0.y+Math.sin(a)*r*.62}}));
+  state.graph.positions=pos;graphBasePos=pos;graphView={x:0,y:0,scale:1};saveGraphState();drawGraph();graphCenter();
 }
 function graphNodeClick(n){
-  if(n.type==="chapter"){state.current=Number(n.id.split(":")[1]);load();closeGraph();return}
-  if(n.type==="character"||n.type==="place"){openLibrary();closeGraph();return}
+  graphSelectedNodeId=n.id;graphSelectedEdge=null;graphRenderDetail();
 }
-function renderGraph(){graphAutoLayout()}
-window.addEventListener("resize",()=>{if(document.body.classList.contains("graph-open"))graphAutoLayout()});
+function graphRenderDetail(){
+  const box=$("graphDetail");if(!box)return;
+  if(!graphSelectedNodeId){box.hidden=true;return}
+  const n=graphData.nodes.find(x=>x.id===graphSelectedNodeId);if(!n){box.hidden=true;return}
+  const edges=graphData.edges.filter(e=>e.a===n.id||e.b===n.id);
+  box.hidden=false;
+  box.innerHTML=`<h3>${graphNodeIcon(n.type)} ${esc(n.label)}</h3>
+    <div>${esc(GRAPH_TYPES[n.type]?.meta||"Elemento")} · ${edges.length} conexiones</div>
+    <div class="graph-detail-actions">
+      <button type="button" onclick="graphOpenNodeSource()">Abrir origen</button>
+      <button type="button" onclick="graphNodeParagraphButton()">📍 Párrafos</button>
+      <button type="button" onclick="openGraphConnect('${esc(n.id)}')">🔗 Conectar</button>
+      <button type="button" onclick="graphCloseDetail()">Cerrar</button>
+    </div>
+    <hr><b>Conexiones</b>
+    <div>${edges.slice(0,30).map(e=>{const other=e.a===n.id?e.b:e.a;const on=graphData.nodes.find(x=>x.id===other);return `<div style="padding:5px 0"><span class="graph-relation-pill">${esc(e.type)}</span> ${esc(on?.label||other)}${e.source==="custom"?" · ✏️":""}</div>`}).join("")||"Sin conexiones."}</div>`;
+}
+function graphCloseDetail(){graphSelectedNodeId=null;$("graphDetail").hidden=true;drawGraph()}
+function graphOpenNodeSource(){
+  const n=graphData.nodes.find(x=>x.id===graphSelectedNodeId);if(!n)return;
+  if(n.type==="chapter"){state.current=Number(n.id.split(":")[1]);load();closeGraph();return}
+  if(n.type==="character"){openLibrary();closeGraph();return}
+  if(n.type==="place"){openLibrary();closeGraph();return}
+  if(n.type==="event"){
+    const m=state.timeline.find(x=>x.id===n.id.slice(6));if(m){state.current=m.ci||0;load();closeGraph();setTimeout(()=>{const ps=[...document.querySelectorAll("#editor > p")];if(ps[m.pi]){selectParagraphById(ps[m.pi].dataset.pid,true);ps[m.pi].scrollIntoView({behavior:"smooth",block:"center"})}},80)}
+  }
+}
+function openGraphSearch(){const x=$("graphTools");x.hidden=!x.hidden;if(!x.hidden)$("graphSearchInput").focus()}
+function clearGraphSearch(){$("graphSearchInput").value="";$("graphTypeFilter").value="all";drawGraph()}
+function openGraphConnect(preselect){
+  ensureGraphState();buildGraphData();
+  const box=$("graphConnectBox");box.hidden=false;
+  const first=preselect||graphSelectedNodeId||"";
+  box.innerHTML=`<h3>🔗 Crear conexión</h3>
+    <label>Desde<select id="graphFrom"></select></label>
+    <label>Hasta<select id="graphTo"></select></label>
+    <label>Tipo<select id="graphRelationType">${GRAPH_RELATIONS.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label>
+    <label>O escribir otro tipo<input id="graphRelationCustom" placeholder="Ej.: protege a"></label>
+    <div class="graph-connect-actions"><button type="button" onclick="graphConfirmConnection()">✓ Confirmar</button><button type="button" onclick="graphCloseConnect()">Cancelar</button></div>`;
+  const opts=graphData.nodes.map(n=>`<option value="${esc(n.id)}">${esc(graphNodeIcon(n.type)+" "+n.label)}</option>`).join("");
+  $("graphFrom").innerHTML=opts;$("graphTo").innerHTML=opts;
+  if(first&&[...$("graphFrom").options].some(o=>o.value===first))$("graphFrom").value=first;
+}
+function graphCloseConnect(){$("graphConnectBox").hidden=true}
+function graphConfirmConnection(){
+  const a=$("graphFrom").value,b=$("graphTo").value;
+  if(!a||!b||a===b){alert("Elegí dos nodos distintos.");return}
+  const custom=$("graphRelationCustom").value.trim(),type=custom||$("graphRelationType").value;
+  if(!type)return;
+  if(!confirm(`¿Crear esta conexión?\n\n${a} → ${type} → ${b}`))return;
+  ensureGraphState();
+  const exists=state.graph.customEdges.some(e=>((e.a===a&&e.b===b)||(e.a===b&&e.b===a))&&e.type===type);
+  if(exists){alert("Esa conexión ya existe.");return}
+  state.graph.customEdges.push({id:"ge_"+Date.now().toString(36),a,b,type,createdAt:Date.now()});
+  saveGraphState();graphCloseConnect();drawGraph();
+}
+function graphCloseOverlays(){graphCloseDetail();graphCloseConnect();$("graphSuggestions").hidden=true}
+function graphSuggestConnections(){
+  ensureGraphState();buildGraphData();
+  const candidates=[],seen=new Set();
+  graphData.edges.filter(e=>e.source==="auto"&&e.type==="comparten párrafo").forEach(e=>{
+    const key=[e.a,e.b].sort().join("|");if(seen.has(key))return;
+    if(state.graph.customEdges.some(x=>[x.a,x.b].sort().join("|")===key))return;
+    seen.add(key);candidates.push(e);
+  });
+  const box=$("graphSuggestions");box.hidden=false;
+  box.innerHTML=`<h3>🧠 Posibles conexiones</h3><p>Son sugerencias. No modifican la novela hasta que confirmes.</p>`+
+    (candidates.length?candidates.slice(0,30).map((e,i)=>{const a=graphData.nodes.find(n=>n.id===e.a),b=graphData.nodes.find(n=>n.id===e.b);return `<div class="graph-suggestion"><b>${esc(a?.label||e.a)} ↔ ${esc(b?.label||e.b)}</b><br><span class="graph-relation-pill">${esc(e.type)}</span><div class="graph-detail-actions"><button type="button" onclick="graphAcceptSuggestion(${i})">✓ Confirmar</button><button type="button" onclick="graphIgnoreSuggestion(${i})">✕ Ignorar</button></div></div>`}).join(""):"No encontré conexiones nuevas basadas en párrafos compartidos.");
+  state.graph.suggestionBuffer=candidates;
+}
+function graphAcceptSuggestion(i){
+  const e=state.graph.suggestionBuffer?.[i];if(!e)return;
+  const a=graphData.nodes.find(n=>n.id===e.a),b=graphData.nodes.find(n=>n.id===e.b);if(!a||!b)return;
+  if(!confirm(`¿Confirmar la conexión «${a.label}» ↔ «${b.label}»?`))return;
+  state.graph.customEdges.push({id:"ge_"+Date.now().toString(36),a:e.a,b:e.b,type:"comparten párrafo",createdAt:Date.now()});
+  state.graph.suggestionBuffer.splice(i,1);saveGraphState();graphSuggestConnections();drawGraph();
+}
+function graphIgnoreSuggestion(i){
+  const e=state.graph.suggestionBuffer?.[i];if(!e)return;
+  if(!confirm("¿Ignorar esta sugerencia?"))return;
+  state.graph.suggestionBuffer.splice(i,1);graphSuggestConnections();
+}
+function graphOpenParagraphsForNode(n){
+  // Used by the detail panel when a node has textual evidence.
+  const rows=[];
+  if(n.type==="character"){
+    const idx=Number(n.id.split(":")[1]),c=state.characters[idx];if(!c)return rows;
+    const term=normalize(c.name||"");state.chapters.forEach((ch,ci)=>{const d=document.createElement("div");d.innerHTML=ch.html||"";[...d.querySelectorAll("p")].forEach((p,pi)=>{if(normalize(p.innerText||"").includes(term))rows.push({ci,pi,text:p.innerText||""})})});
+  }
+  return rows;
+}
+function graphNodeParagraphButton(){
+  const n=graphData.nodes.find(x=>x.id===graphSelectedNodeId);if(!n)return;
+  const rows=graphOpenParagraphsForNode(n);
+  if(!rows.length){alert("No encontré párrafos asociados.");return}
+  const msg=rows.slice(0,20).map((r,i)=>`${i+1}. ${state.chapters[r.ci].name} · párrafo ${r.pi+1}`).join("\n");
+  const pick=prompt("Apariciones encontradas:\n\n"+msg+"\n\nEscribí el número para ir al párrafo:");
+  if(pick===null)return;const r=rows[Number(pick)-1];if(!r)return;
+  state.current=r.ci;load();closeGraph();setTimeout(()=>{const ps=[...document.querySelectorAll("#editor > p")];if(ps[r.pi]){selectParagraphById(ps[r.pi].dataset.pid,true);ps[r.pi].scrollIntoView({behavior:"smooth",block:"center"})}},100);
+}
+window.addEventListener("resize",()=>{if(document.body.classList.contains("graph-open"))drawGraph()});
 const graphCanvasEl=$("graphCanvas");
 graphCanvasEl.addEventListener("pointerdown",graphPointerDown);
 graphCanvasEl.addEventListener("pointermove",graphPointerMove);
 graphCanvasEl.addEventListener("pointerup",graphPointerUp);
 graphCanvasEl.addEventListener("pointercancel",graphPointerUp);
 graphCanvasEl.addEventListener("wheel",graphWheel,{passive:false});
-
-
 
 const ANALYSIS_KEY="escritor_auto_analysis_v2";
 let analysisState=JSON.parse(localStorage.getItem(ANALYSIS_KEY)||"null")||{
