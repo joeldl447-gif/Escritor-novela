@@ -507,6 +507,16 @@ body.night .paragraph-status-done{background:#254234}
 .night .graph-edge-label{fill:#ccc;stroke:#202020}
 .night .graph-suggestion{border-color:#444}
 
+
+.graph-toggle{display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
+.graph-toggle input{margin:0}
+#graphTools{gap:6px;align-items:center;flex-wrap:wrap}
+#graphTools select,#graphTools input{min-width:130px}
+.graph-node.dimmed{opacity:.18;pointer-events:none}
+.graph-node.focused{box-shadow:0 0 0 3px #6aa9e8,0 5px 16px #0002}
+.graph-edge-label{font-size:11px;fill:#666;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
+.night .graph-edge-label{fill:#ddd;stroke:#222}
+
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -967,7 +977,7 @@ body.night .paragraph-status-done{background:#254234}
   </div>
   <div id="graphTools" hidden>
     <input id="graphSearchInput" type="search" placeholder="Buscar personaje, lugar, capítulo, acontecimiento…" oninput="drawGraph()">
-    <select id="graphTypeFilter" onchange="drawGraph()">
+    <select id="graphTypeFilter" onchange="drawGraph();saveGraphViewPrefs()">
       <option value="all">Todos los nodos</option>
       <option value="chapter">📖 Capítulos</option>
       <option value="character">👤 Personajes</option>
@@ -977,6 +987,11 @@ body.night .paragraph-status-done{background:#254234}
       <option value="concept">💡 Conceptos</option>
       <option value="tag">🔖 Enlaces</option>
     </select>
+    <select id="graphRelationFilter" onchange="drawGraph();saveGraphViewPrefs()">
+      <option value="all">Todas las conexiones</option>
+    </select>
+    <label class="graph-toggle"><input id="graphFocusToggle" type="checkbox" onchange="drawGraph();saveGraphViewPrefs()"> Solo nodo seleccionado</label>
+    <button type="button" onclick="graphFocusSelected()">🎯 Enfocar</button>
     <button type="button" onclick="clearGraphSearch()">Limpiar</button>
   </div>
   <div id="graphCanvas">
@@ -1941,18 +1956,90 @@ function buildGraphData(){
   });
   graphData={nodes,edges:unique};
 }
+
+function ensureGraphViewPrefs(){
+  ensureGraphState();
+  state.graph.viewPrefs=state.graph.viewPrefs||{type:"all",relation:"all",focus:false};
+  return state.graph.viewPrefs;
+}
+function saveGraphViewPrefs(){
+  const p=ensureGraphViewPrefs();
+  p.type=$("graphTypeFilter")?.value||"all";
+  p.relation=$("graphRelationFilter")?.value||"all";
+  p.focus=!!$("graphFocusToggle")?.checked;
+  saveGraphState();
+}
+function populateGraphRelationFilter(){
+  const sel=$("graphRelationFilter");if(!sel)return;
+  const old=sel.value||ensureGraphViewPrefs().relation||"all";
+  const rel=[...new Set((graphData?.edges||[]).map(e=>String(e.type||"Conexión")).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es"));
+  sel.innerHTML='<option value="all">Todas las conexiones</option>'+rel.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join("");
+  sel.value=[...sel.options].some(o=>o.value===old)?old:"all";
+}
+function restoreGraphViewPrefs(){
+  const p=ensureGraphViewPrefs();
+  if($("graphTypeFilter"))$("graphTypeFilter").value=p.type||"all";
+  populateGraphRelationFilter();
+  if($("graphRelationFilter"))$("graphRelationFilter").value=p.relation||"all";
+  if($("graphFocusToggle"))$("graphFocusToggle").checked=!!p.focus;
+}
+function graphFocusSelected(){
+  if(!graphSelectedNodeId){
+    alert("Seleccioná un nodo primero.");
+    return;
+  }
+  const p=graphBasePos[graphSelectedNodeId];
+  const c=$("graphCanvas");
+  if(!p||!c)return;
+  graphView.x=c.clientWidth/2-p.x*graphView.scale;
+  graphView.y=c.clientHeight/2-p.y*graphView.scale;
+  drawGraph();
+}
+function graphShowOnlySelected(){
+  const toggle=$("graphFocusToggle");
+  if(!toggle)return;
+  if(!graphSelectedNodeId){
+    toggle.checked=false;
+    alert("Seleccioná un nodo primero.");
+    return;
+  }
+  toggle.checked=true;
+  saveGraphViewPrefs();
+  drawGraph();
+}
+function graphResetFilters(){
+  if($("graphSearchInput"))$("graphSearchInput").value="";
+  if($("graphTypeFilter"))$("graphTypeFilter").value="all";
+  if($("graphRelationFilter"))$("graphRelationFilter").value="all";
+  if($("graphFocusToggle"))$("graphFocusToggle").checked=false;
+  saveGraphViewPrefs();
+  drawGraph();
+}
+
 function graphVisibleNodes(){
   const q=normalize($("graphSearchInput")?.value||"");
   const type=$("graphTypeFilter")?.value||"all";
-  return graphData.nodes.filter(n=>{
+  const focus=!!$("graphFocusToggle")?.checked;
+  const selected=graphSelectedNodeId;
+  let nodes=graphData.nodes.filter(n=>{
     if(type!=="all"&&n.type!==type)return false;
     if(!q)return true;
     return normalize(`${n.label} ${n.meta}`).includes(q);
   });
+  if(focus&&selected){
+    const linked=new Set([selected]);
+    graphData.edges.forEach(e=>{
+      if(e.a===selected)linked.add(e.b);
+      if(e.b===selected)linked.add(e.a);
+    });
+    nodes=nodes.filter(n=>linked.has(n.id));
+  }
+  return nodes;
 }
 function graphVisibleEdges(nodes){
   const ids=new Set(nodes.map(n=>n.id));
-  return graphData.edges.filter(e=>ids.has(e.a)&&ids.has(e.b));
+  const relation=$("graphRelationFilter")?.value||"all";
+  return graphData.edges.filter(e=>ids.has(e.a)&&ids.has(e.b)&&(relation==="all"||e.type===relation));
 }
 function graphPositionFor(id,index,total,w,h){
   ensureGraphState();
@@ -2002,6 +2089,7 @@ function graphNodeIcon(type){return GRAPH_TYPES[type]?.label?.split(" ")[0]||"�
 function graphEdgeColor(e){return e.source==="custom"?"#6aa9e8":"#9aa1aa"}
 function drawGraph(){
   ensureGraphState();buildGraphData();
+  populateGraphRelationFilter();
   const svg=$("graphSvg"),box=$("graphNodes"),c=$("graphCanvas");if(!svg||!box)return;
   svg.innerHTML="";box.innerHTML="";
   const visible=graphVisibleNodes(),edges=graphVisibleEdges(visible),ids=new Set(visible.map(n=>n.id));
@@ -2017,16 +2105,21 @@ function drawGraph(){
     line.style.cursor="pointer";
     line.addEventListener("click",ev=>{ev.stopPropagation();graphShowEdgeEvidence(e)});
     svg.appendChild(line);
-    if(e.source==="custom"){
+    if(e.type){
       const tx=document.createElementNS("http://www.w3.org/2000/svg","text");
       tx.setAttribute("x",(A.x+B.x)/2);tx.setAttribute("y",(A.y+B.y)/2-4);tx.setAttribute("text-anchor","middle");
-      tx.setAttribute("class","graph-edge-label");tx.textContent=e.type;svg.appendChild(tx);
+      tx.setAttribute("class","graph-edge-label");
+      tx.setAttribute("data-edge-label",e.id);
+      tx.textContent=e.type;
+      svg.appendChild(tx);
     }
   });
   visible.forEach(n=>{
     if(!graphBasePos[n.id])graphBasePos[n.id]=graphPositionFor(n.id,visible.indexOf(n),visible.length,w,h);
     const p=graphScreen(graphBasePos[n.id]),d=document.createElement("div");
-    d.className="graph-node "+n.type+(graphSelectedNodeId===n.id?" selected":"");d.dataset.nodeId=n.id;
+    const isFocused=graphSelectedNodeId===n.id;
+    d.className="graph-node "+n.type+(isFocused?" selected focused":"");
+    d.dataset.nodeId=n.id;
     d.style.left=(p.x-70)+"px";d.style.top=(p.y-28)+"px";d.style.transform=`scale(${graphView.scale})`;d.style.transformOrigin="center center";
     d.innerHTML=`<strong>${graphNodeIcon(n.type)} ${esc(n.label)}</strong><small>${esc(n.meta)}</small>`;
     d.addEventListener("pointerdown",e=>graphNodePointerDown(e,n));
@@ -2071,7 +2164,10 @@ function graphPointerUp(e){
   else if(graphPointers.size===1){const p=[...graphPointers.values()][0];graphPanStart={x:p.x,y:p.y,viewX:graphView.x,viewY:graphView.y};graphPinchStart=null}
 }
 function graphWheel(e){e.preventDefault();const r=$("graphCanvas").getBoundingClientRect();graphZoomBy(e.deltaY<0?1.12:.89,e.clientX-r.left,e.clientY-r.top)}
-function openGraph(){ensureGraphState();document.body.classList.add("graph-open");graphLoadPositions();drawGraph();graphCenter()}
+function openGraph(){
+  ensureGraphState();document.body.classList.add("graph-open");
+  graphLoadPositions();buildGraphData();restoreGraphViewPrefs();drawGraph();graphCenter();
+}
 function closeGraph(){document.body.classList.remove("graph-open");graphCloseOverlays()}
 function renderGraph(){openGraph()}
 function graphLoadPositions(){
@@ -2092,6 +2188,7 @@ function graphAutoLayout(confirmIt=true){
 }
 function graphNodeClick(n){
   graphSelectedNodeId=n.id;graphSelectedEdge=null;graphRenderDetail();
+  if($("graphFocusToggle")?.checked){graphFocusSelected();}
 }
 function graphRenderDetail(){
   const box=$("graphDetail");if(!box)return;
@@ -2105,6 +2202,7 @@ function graphRenderDetail(){
       <button type="button" onclick="graphOpenNodeSource()">Abrir origen</button>
       <button type="button" onclick="graphNodeParagraphButton()">📍 Párrafos</button>
       <button type="button" onclick="openGraphConnect('${esc(n.id)}')">🔗 Conectar</button>
+      <button type="button" onclick="graphShowOnlySelected()">🎯 Solo este</button>
       <button type="button" onclick="graphCloseDetail()">Cerrar</button>
     </div>
     <hr><b>Conexiones</b>
@@ -2138,7 +2236,7 @@ function graphOpenNodeSource(){
   }
 }
 function openGraphSearch(){const x=$("graphTools");x.hidden=!x.hidden;if(!x.hidden)$("graphSearchInput").focus()}
-function clearGraphSearch(){$("graphSearchInput").value="";$("graphTypeFilter").value="all";drawGraph()}
+function clearGraphSearch(){graphResetFilters()}
 function openGraphConnect(preselect){
   ensureGraphState();buildGraphData();
   const box=$("graphConnectBox");box.hidden=false;
