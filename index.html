@@ -450,6 +450,25 @@ body.night #appMenu .menu-title{border-color:#333}
 .timeline-node-meta{white-space:normal}
 .timeline-connection-line{position:absolute;height:3px;background:#888;transform-origin:left center;pointer-events:none;border-radius:3px}
 
+
+/* ===== Sistema de párrafos V56 ===== */
+#editor p{position:relative;cursor:text;transition:background .12s,box-shadow .12s}
+#editor p.paragraph-selected{background:#fff8d7;box-shadow:inset 3px 0 #6aa9e8}
+body.night #editor p.paragraph-selected{background:#303b48}
+.paragraph-tools{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.paragraph-tools button{padding:7px 9px}
+.paragraph-badge{font-size:11px;opacity:.65;margin-right:5px;user-select:none}
+.paragraph-note-dot{display:inline-block;margin-left:5px;font-size:11px}
+#paragraphMetaBar{font-size:12px;color:#777;margin:5px 0;min-height:18px}
+#paragraphMetaPanel{border-top:1px solid #ddd;margin-top:10px;padding-top:10px}
+.paragraph-stat{display:inline-block;margin-right:10px}
+.paragraph-status-review{background:#fff3c4}
+.paragraph-status-problem{background:#ffd9d9}
+.paragraph-status-done{background:#dff4e8}
+body.night .paragraph-status-review{background:#4a4325}
+body.night .paragraph-status-problem{background:#4b2c2c}
+body.night .paragraph-status-done{background:#254234}
+
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -950,6 +969,17 @@ body.night #appMenu .menu-title{border-color:#333}
       </span>
       <span id="stats"></span>
     </div>
+    <div id="paragraphMetaBar"></div>
+    <div class="paragraph-tools">
+      <button type="button" onclick="jumpToParagraphNumber()">🔢 Ir al párrafo</button>
+      <button type="button" onclick="setParagraphTag()">🏷️ Etiquetar</button>
+      <button type="button" onclick="toggleParagraphBookmark()">📌 Marcar</button>
+      <button type="button" onclick="setParagraphStatus('review')">🟡 Para revisar</button>
+      <button type="button" onclick="setParagraphStatus('problem')">🔴 Problema</button>
+      <button type="button" onclick="setParagraphStatus('done')">🟢 Revisado</button>
+      <button type="button" onclick="splitSelectedParagraph()">✂️ Dividir</button>
+      <button type="button" onclick="mergeSelectedParagraph()">🔗 Unir siguiente</button>
+    </div>
     <div id="editor" contenteditable="true" spellcheck="true" autocapitalize="sentences"></div>
   </section>
 
@@ -987,8 +1017,182 @@ const $=id=>document.getElementById(id);
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function textOf(h){let d=document.createElement("div");d.innerHTML=h;return d.innerText.trim()}
 
+
+function makeParagraphId(){
+  if(window.crypto?.randomUUID)return "p_"+crypto.randomUUID();
+  return "p_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,10);
+}
+function paragraphMeta(ch){
+  ch.paragraphMeta=ch.paragraphMeta||{};
+  return ch.paragraphMeta;
+}
+function ensureParagraphStructure(){
+  const ed=$("editor"); if(!ed)return [];
+  const ps=[...ed.querySelectorAll(":scope > p")];
+  const ch=state.chapters[state.current];
+  const meta=paragraphMeta(ch);
+  const used=new Set();
+  ps.forEach((p,i)=>{
+    let id=p.dataset.pid;
+    if(!id||used.has(id)){id=makeParagraphId();p.dataset.pid=id}
+    used.add(id);
+    meta[id]=meta[id]||{tag:"",status:"none",bookmark:false,noteUpdated:0};
+  });
+  // Migrate old numeric notes (paragraph-index keys) to stable paragraph IDs.
+  ch.notes=ch.notes||{};
+  Object.keys(ch.notes).forEach(k=>{
+    if(/^\d+$/.test(k)){
+      const idx=Number(k),p=ps[idx];
+      if(p){
+        const id=p.dataset.pid;
+        if(ch.notes[id]===undefined)ch.notes[id]=ch.notes[k];
+      }
+      delete ch.notes[k];
+    }
+  });
+  // Remove metadata for paragraphs that no longer exist.
+  Object.keys(meta).forEach(id=>{if(!used.has(id))delete meta[id]});
+  return ps;
+}
+function paragraphIndexById(id){
+  return [...document.querySelectorAll("#editor > p")].findIndex(p=>p.dataset.pid===id);
+}
+function selectedParagraph(){
+  if(!selected)return null;
+  return document.querySelector(`#editor > p[data-pid="${CSS.escape(selected)}"]`);
+}
+function paragraphCount(ch){
+  const d=document.createElement("div");d.innerHTML=ch.html||"";
+  return d.querySelectorAll("p").length;
+}
+function chapterWordCount(ch){const txt=textOf(ch.html);return txt?txt.split(/\s+/).length:0}
+function paragraphLabel(id){
+  const i=paragraphIndexById(id);
+  return i>=0?"Párrafo "+(i+1):"Párrafo";
+}
+function selectParagraphById(id,openNotes=false){
+  const p=document.querySelector(`#editor > p[data-pid="${CSS.escape(id)}"]`);
+  if(!p)return;
+  document.querySelectorAll("#editor p.paragraph-selected").forEach(x=>x.classList.remove("paragraph-selected"));
+  p.classList.add("paragraph-selected");
+  selected=id;
+  const ch=state.chapters[state.current],idx=paragraphIndexById(id),meta=paragraphMeta(ch)[id]||{};
+  $("selectedLabel").textContent=`${ch.name} · Párrafo ${idx+1}${ch.notes?.[id]?" · 📝 tiene nota":""}`;
+  $("noteText").value=ch.notes?.[id]||"";
+  $("paragraphMetaBar").innerHTML=`<span class="paragraph-stat">¶ ${idx+1}/${document.querySelectorAll("#editor > p").length}</span>
+    <span class="paragraph-stat">${esc(meta.tag||"Sin etiqueta")}</span>
+    <span class="paragraph-stat">${meta.status==="review"?"🟡 Para revisar":meta.status==="problem"?"🔴 Problema":meta.status==="done"?"🟢 Revisado":"⚪ Sin estado"}</span>
+    ${meta.bookmark?"<span class='paragraph-stat'>📌 Marcado</span>":""}`;
+  if(openNotes)document.body.classList.add("notes-open");
+}
+function bindParagraphs(){
+  const ps=ensureParagraphStructure();
+  ps.forEach((p,i)=>{
+    p.onclick=(e)=>{
+      if(e.target.closest("a,button,input,textarea,select"))return;
+      selectParagraphById(p.dataset.pid,false);
+    };
+    p.ondblclick=()=>selectParagraphById(p.dataset.pid,true);
+  });
+  if(selected && paragraphIndexById(selected)>=0)selectParagraphById(selected,false);
+}
+function saveParagraphState(){
+  ensureParagraphStructure();
+  localStorage.setItem(KEY,JSON.stringify(state));
+  createAutoBackup(false);
+  renderChapters();stats();
+}
+function paragraphConfirm(message){return confirm(message+"\n\nNo se modificará el texto hasta que confirmes.")}
+function setParagraphTag(){
+  if(!selected)return;
+  const ch=state.chapters[state.current],m=paragraphMeta(ch)[selected];
+  const tags=["Narración","Diálogo","Acción","Descripción","Pensamiento","Recuerdo","Transición","Otro"];
+  const current=m.tag||"";
+  const tag=prompt("Etiqueta del párrafo:\n\n"+tags.join(" · "),current);
+  if(tag===null)return;
+  const clean=tag.trim();
+  if(!paragraphConfirm(`¿Asignar la etiqueta «${clean||"Sin etiqueta"}» a ${paragraphLabel(selected)}?`))return;
+  m.tag=clean;saveParagraphState();selectParagraphById(selected);
+}
+function setParagraphStatus(status){
+  if(!selected)return;
+  const ch=state.chapters[state.current],m=paragraphMeta(ch)[selected];
+  const labels={none:"Sin estado",review:"Para revisar",problem:"Problema detectado",done:"Revisado"};
+  if(!paragraphConfirm(`¿Marcar ${paragraphLabel(selected)} como «${labels[status]}»?`))return;
+  m.status=status;saveParagraphState();selectParagraphById(selected);
+}
+function toggleParagraphBookmark(){
+  if(!selected)return;
+  const ch=state.chapters[state.current],m=paragraphMeta(ch)[selected];
+  const next=!m.bookmark;
+  if(!paragraphConfirm(`${next?"¿Marcar":"¿Quitar el marcador de"} ${paragraphLabel(selected)}?`))return;
+  m.bookmark=next;saveParagraphState();selectParagraphById(selected);
+}
+function saveNote(){
+  if(!selected){alert("Seleccioná un párrafo primero.");return}
+  const ch=state.chapters[state.current];ch.notes=ch.notes||{};
+  const value=$("noteText").value.trim();
+  const old=ch.notes[selected]||"";
+  if(value===old)return;
+  if(!paragraphConfirm(`¿Guardar la nota en ${paragraphLabel(selected)}?`))return;
+  if(value)ch.notes[selected]=value;else delete ch.notes[selected];
+  paragraphMeta(ch)[selected].noteUpdated=Date.now();
+  saveParagraphState();selectParagraphById(selected);
+}
+function clearNote(){
+  if(!selected){alert("Seleccioná un párrafo primero.");return}
+  const ch=state.chapters[state.current];
+  if(!ch.notes?.[selected])return;
+  if(!paragraphConfirm(`¿Borrar la nota de ${paragraphLabel(selected)}?`))return;
+  delete ch.notes[selected];$("noteText").value="";
+  saveParagraphState();selectParagraphById(selected);
+}
+function splitSelectedParagraph(){
+  const p=selectedParagraph();if(!p){alert("Seleccioná un párrafo primero.");return}
+  const txt=p.textContent||"";
+  if(txt.length<2){alert("El párrafo es demasiado corto para dividirlo.");return}
+  const at=Math.floor(txt.length/2);
+  const cut=prompt("¿En qué posición de caracteres querés dividirlo?\n\nPodés usar el punto medio como referencia.",String(at));
+  if(cut===null)return;
+  const n=Number(cut);
+  if(!Number.isInteger(n)||n<=0||n>=txt.length){alert("Posición inválida.");return}
+  if(!paragraphConfirm(`¿Dividir ${paragraphLabel(selected)} en dos párrafos?`))return;
+  const a=txt.slice(0,n).trim(),b=txt.slice(n).trim();
+  p.textContent=a;
+  const np=document.createElement("p");np.textContent=b;np.dataset.pid=makeParagraphId();
+  p.after(np);
+  const ch=state.chapters[state.current],meta=paragraphMeta(ch);
+  meta[np.dataset.pid]={tag:meta[selected]?.tag||"",status:"none",bookmark:false,noteUpdated:0};
+  if(ch.notes?.[selected]){ch.notes[np.dataset.pid]="";delete ch.notes[selected]}
+  selected=np.dataset.pid;save();bindParagraphs();selectParagraphById(selected);
+}
+function mergeSelectedParagraph(){
+  const p=selectedParagraph();if(!p){alert("Seleccioná un párrafo primero.");return}
+  const next=p.nextElementSibling;
+  if(!next||next.tagName!=="P"){alert("No hay un párrafo siguiente para unir.");return}
+  if(!paragraphConfirm(`¿Unir ${paragraphLabel(selected)} con el siguiente párrafo?\n\nSe conservará el identificador del primer párrafo.`))return;
+  const nextId=next.dataset.pid;
+  p.textContent=(p.textContent||"").trim()+" "+(next.textContent||"").trim();
+  const ch=state.chapters[state.current],meta=paragraphMeta(ch);
+  if(ch.notes?.[nextId]){
+    ch.notes[selected]=[ch.notes[selected]||"",ch.notes[nextId]].filter(Boolean).join("\n\n");
+    delete ch.notes[nextId];
+  }
+  delete meta[nextId];next.remove();
+  save();bindParagraphs();selectParagraphById(selected);
+}
+function jumpToParagraphNumber(){
+  const n=prompt("¿A qué párrafo querés ir?");
+  if(n===null)return;
+  const i=Number(n)-1,ps=[...document.querySelectorAll("#editor > p")];
+  if(!Number.isInteger(i)||!ps[i]){alert("Ese párrafo no existe.");return}
+  selectParagraphById(ps[i].dataset.pid,true);
+  ps[i].scrollIntoView({behavior:"smooth",block:"center"});
+}
+
 function save(){
   state.title=$("title").value;
+  ensureParagraphStructure();
   state.chapters[state.current].html=$("editor").innerHTML;
   let h=state.history[state.current]||(state.history[state.current]=[]);
   let snap=state.chapters[state.current].html;
@@ -1005,30 +1209,31 @@ function load(){
   $("title").value=state.title;
   $("editor").innerHTML=state.chapters[state.current].html;
   selected=null;$("noteText").value="";$("selectedLabel").textContent="Seleccioná un párrafo.";
+  ensureParagraphStructure();
   bindParagraphs();stats();renderChapters();
+  save();
 }
 function renderChapters(){
   const box=$("chapterList");box.innerHTML="";
   state.chapters.forEach((c,i)=>{
     let d=document.createElement("div");d.className="chapter"+(i===state.current?" active":"");
-    let name=document.createElement("span");name.className="chapter-name";name.textContent=c.name;
+    let name=document.createElement("span");name.className="chapter-name";name.innerHTML=esc(c.name)+`<small class="muted" style="display:block">${chapterWordCount(c)} palabras · ${paragraphCount(c)} párrafos</small>`;
     name.onclick=()=>{save();state.current=i;load();if(innerWidth<801)document.body.classList.remove("chapters-open")};
     let del=document.createElement("button");del.textContent="🗑";del.title="Eliminar capítulo";del.style.padding="5px 7px";
     del.onclick=e=>{e.stopPropagation();deleteChapter(i)};
     d.append(name,del);box.appendChild(d);
   });
 }
-function bindParagraphs(){
-  // Tocar/escribir un párrafo ya no abre el panel de notas.
-  // La edición de notas se activa únicamente desde el icono correspondiente.
-  document.querySelectorAll("#editor p").forEach((p,i)=>{
-    p.onclick=()=>{ selected=i; };
-  });
-}
+
 function stats(){
+  ensureParagraphStructure();
   let t=$("editor").innerText.trim(),w=t?t.split(/\s+/).length:0;
   let all=state.chapters.map(c=>textOf(c.html)).join(" ").trim(),aw=all?all.split(/\s+/).length:0;
-  $("stats").textContent=w+" palabras · novela: "+aw;
+  const cp=paragraphCount(state.chapters[state.current]);
+  const ap=state.chapters.reduce((n,c)=>n+paragraphCount(c),0);
+  $("stats").textContent=`${w} palabras · ${cp} párrafos · novela: ${aw} palabras · ${ap} párrafos`;
+  const bar=$("paragraphMetaBar");
+  if(bar&&!selected)bar.innerHTML=`<span class="paragraph-stat">¶ ${cp} párrafos en este capítulo</span>`;
 }
 function applyEditorZoom(){
   const z=state.editorZoom||1;
@@ -1047,18 +1252,16 @@ $("editorZoomOut").addEventListener("click",()=>changeEditorZoom(-.1));
 $("editorZoomIn").addEventListener("click",()=>changeEditorZoom(.1));
 $("editorZoomReset").addEventListener("click",()=>setEditorZoom(1));
 
-$("editor").addEventListener("input",()=>{bindParagraphs();updateSelectedParagraphFromCaret();save()});
+$("editor").addEventListener("input",()=>{updateSelectedParagraphFromCaret();bindParagraphs();save()});
 
 function updateSelectedParagraphFromCaret(){
   const sel=window.getSelection?.();
   if(!sel||!sel.rangeCount)return;
   let node=sel.anchorNode;
   if(node&&node.nodeType===3)node=node.parentElement;
-  const p=node?.closest?.("#editor p");
+  const p=node?.closest?.("#editor > p");
   if(!p)return;
-  const ps=[...document.querySelectorAll("#editor p")];
-  const i=ps.indexOf(p);
-  if(i>=0)selected=i;
+  selectParagraphById(p.dataset.pid,false);
 }
 $("editor").addEventListener("keyup",updateSelectedParagraphFromCaret);
 $("editor").addEventListener("mouseup",updateSelectedParagraphFromCaret);
@@ -1092,6 +1295,11 @@ $("editor").addEventListener("touchmove",e=>{
 
 $("editor").addEventListener("touchend",()=>{
   editorPinch=null;
+});
+$("noteToggle").addEventListener("click",()=>{
+  if(!selected){alert("Seleccioná un párrafo primero.");return}
+  selectParagraphById(selected,true);
+  document.body.classList.toggle("notes-open");
 });
 
 function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
