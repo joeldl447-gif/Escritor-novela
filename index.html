@@ -479,6 +479,8 @@ body.night .paragraph-status-done{background:#254234}
 .graph-node.object{border-left:4px solid #7b7b7b}
 .graph-node.concept{border-left:4px solid #3f82a8}
 .graph-node.selected{box-shadow:0 0 0 3px #6aa9e8,0 4px 14px #0002}
+.paragraph-jump-highlight{outline:3px solid #6aa9e8;outline-offset:4px;border-radius:4px;transition:outline-color .2s}
+
 .graph-node.dimmed{opacity:.22}
 .graph-edge-label{font-size:10px;fill:#777;paint-order:stroke;stroke:#fff;stroke-width:3px}
 #graphDetail,#graphConnectBox,#graphSuggestions{position:absolute;right:12px;top:64px;z-index:10;width:min(360px,calc(100% - 24px));max-height:calc(100% - 140px);overflow:auto;background:#fff;color:#222;border:1px solid #ccc;border-radius:12px;padding:12px;box-shadow:0 8px 30px #0003}
@@ -487,6 +489,16 @@ body.night .paragraph-status-done{background:#254234}
 .graph-suggestion{border-top:1px solid #ddd;padding:9px 0}
 .graph-suggestion:first-child{border-top:0}
 .graph-relation-pill{display:inline-block;padding:3px 7px;border-radius:99px;background:#eee;font-size:11px;margin:2px}
+.graph-evidence{margin-top:10px;border-top:1px solid #ddd;padding-top:8px}
+.graph-evidence-row{padding:8px 0;border-top:1px solid #eee}
+.graph-evidence-row:first-child{border-top:0}
+.graph-evidence-row small{display:block;color:#777;margin:3px 0 6px}
+.graph-evidence-excerpt{font-size:12px;line-height:1.35;color:#555;margin-bottom:6px}
+.graph-evidence-row button{font-size:12px}
+.night .graph-evidence{border-color:#444}
+.night .graph-evidence-row{border-color:#333}
+.night .graph-evidence-row small,.night .graph-evidence-excerpt{color:#aaa}
+
 .night #graphTools,.night #graphDetail,.night #graphConnectBox,.night #graphSuggestions{background:#202020;color:#eee;border-color:#444}
 .night #graphTools input,.night #graphTools select{background:#151515;color:#eee;border-color:#444}
 .night .graph-edge-label{fill:#ccc;stroke:#202020}
@@ -1966,6 +1978,9 @@ function drawGraph(){
     line.setAttribute("x1",A.x);line.setAttribute("y1",A.y);line.setAttribute("x2",B.x);line.setAttribute("y2",B.y);
     line.setAttribute("stroke",graphEdgeColor(e));line.setAttribute("stroke-width",Math.max(1,2*graphView.scale));
     line.setAttribute("data-edge-id",e.id);
+    line.style.pointerEvents="stroke";
+    line.style.cursor="pointer";
+    line.addEventListener("click",ev=>{ev.stopPropagation();graphShowEdgeEvidence(e)});
     svg.appendChild(line);
     if(e.source==="custom"){
       const tx=document.createElementNS("http://www.w3.org/2000/svg","text");
@@ -2125,24 +2140,167 @@ function graphIgnoreSuggestion(i){
   if(!confirm("¿Ignorar esta sugerencia?"))return;
   state.graph.suggestionBuffer.splice(i,1);graphSuggestConnections();
 }
+function graphNodeSearchTerms(n){
+  const terms=[];
+  if(!n)return terms;
+  if(n.type==="chapter"){
+    const c=state.chapters[Number(n.id.split(":")[1])];
+    if(c)terms.push(c.name||"");
+  }else if(n.type==="character"){
+    const c=state.characters[Number(n.id.split(":")[1])];
+    if(c){
+      terms.push(c.name||"");
+      (Array.isArray(c.aliases)?c.aliases:[]).forEach(x=>terms.push(String(x||"")));
+    }
+  }else if(n.type==="place"){
+    const p=state.places[Number(n.id.split(":")[1])];
+    if(p)terms.push(p.name||"");
+  }else if(n.type==="tag"){
+    terms.push(n.label||"");
+  }else if(n.type==="object"||n.type==="concept"){
+    terms.push(n.label||"");
+  }
+  return terms.map(x=>normalize(x).trim()).filter(Boolean);
+}
+
 function graphOpenParagraphsForNode(n){
-  // Used by the detail panel when a node has textual evidence.
   const rows=[];
-  if(n.type==="character"){
-    const idx=Number(n.id.split(":")[1]),c=state.characters[idx];if(!c)return rows;
-    const term=normalize(c.name||"");state.chapters.forEach((ch,ci)=>{const d=document.createElement("div");d.innerHTML=ch.html||"";[...d.querySelectorAll("p")].forEach((p,pi)=>{if(normalize(p.innerText||"").includes(term))rows.push({ci,pi,text:p.innerText||""})})});
+  if(!n)return rows;
+
+  // Chapters: every paragraph is an exact location inside that chapter.
+  if(n.type==="chapter"){
+    const ci=Number(n.id.split(":")[1]),ch=state.chapters[ci];
+    if(!ch)return rows;
+    const d=document.createElement("div");d.innerHTML=ch.html||"";
+    [...d.querySelectorAll("p")].forEach((p,pi)=>{
+      rows.push({
+        ci,pi,pid:p.dataset.pid||"",
+        chapterName:String(ch.name||("Capítulo "+(ci+1))),
+        text:(p.innerText||p.textContent||"").trim(),
+        reason:"Párrafo del capítulo"
+      });
+    });
+    return rows;
+  }
+
+  const terms=graphNodeSearchTerms(n);
+  if(!terms.length)return rows;
+
+  state.chapters.forEach((ch,ci)=>{
+    const d=document.createElement("div");d.innerHTML=ch.html||"";
+    [...d.querySelectorAll("p")].forEach((p,pi)=>{
+      const text=(p.innerText||p.textContent||"").trim(),norm=normalize(text);
+      if(!norm)return;
+      const hit=terms.some(term=>term && norm.includes(term));
+      if(hit){
+        rows.push({
+          ci,pi,pid:p.dataset.pid||"",
+          chapterName:String(ch.name||("Capítulo "+(ci+1))),
+          text,
+          reason:"Aparece en este párrafo"
+        });
+      }
+    });
+  });
+  return rows;
+}
+
+function graphEvidenceRowsHTML(rows,limit=12){
+  return rows.slice(0,limit).map((r,i)=>{
+    const label=`${esc(r.chapterName)} · párrafo ${r.pi+1}`;
+    const excerpt=r.text.length>180?r.text.slice(0,177)+"…":r.text;
+    const safePid=String(r.pid||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+    return `<div class="graph-evidence-row">
+      <b>${i+1}. ${label}</b>
+      <small>${esc(r.reason||"Referencia textual")}</small>
+      <div class="graph-evidence-excerpt">${esc(excerpt)}</div>
+      <button type="button" onclick="graphGoToParagraph(${r.ci},${r.pi},'${safePid}')">📍 Ir al párrafo</button>
+    </div>`;
+  }).join("");
+}
+
+function graphGoToParagraph(ci,pi,pid){
+  if(!Number.isInteger(Number(ci))||!state.chapters[Number(ci)])return;
+  const chapterIndex=Number(ci),paragraphIndex=Number(pi);
+  state.current=chapterIndex;
+  load();
+  closeGraph();
+  setTimeout(()=>{
+    const ps=[...document.querySelectorAll("#editor > p")];
+    let p=pid?ps.find(x=>x.dataset.pid===pid):null;
+    if(!p)p=ps[paragraphIndex];
+    if(!p){
+      alert("No pude localizar exactamente ese párrafo. El texto no fue modificado.");
+      return;
+    }
+    selectParagraphById(p.dataset.pid,true);
+    p.scrollIntoView({behavior:"smooth",block:"center"});
+    p.classList.add("paragraph-jump-highlight");
+    setTimeout(()=>p.classList.remove("paragraph-jump-highlight"),1800);
+  },120);
+}
+
+function graphNodeParagraphButton(){
+  const n=graphData.nodes.find(x=>x.id===graphSelectedNodeId);
+  if(!n)return;
+  const box=$("graphDetail");
+  if(!box)return;
+  const rows=graphOpenParagraphsForNode(n);
+  const evidence=document.createElement("div");
+  evidence.className="graph-evidence";
+  evidence.innerHTML=`<b>📍 Párrafos asociados</b>`+
+    (rows.length
+      ? graphEvidenceRowsHTML(rows,20)
+      : `<div class="graph-evidence-excerpt">No encontré referencias textuales para este nodo.</div>`);
+  const old=box.querySelector(".graph-evidence");
+  if(old)old.replaceWith(evidence);else box.appendChild(evidence);
+  if(rows.length) evidence.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+function graphEdgeEvidence(e){
+  const rows=[];
+  if(!e||e.source!=="auto")return rows;
+  const src=String(e.sourceRef||"");
+  const m=src.match(/^cap:(\d+)(?::p:(\d+))?$/);
+  if(m){
+    const ci=Number(m[1]);
+    const pi=m[2]===undefined?null:Number(m[2]);
+    const ch=state.chapters[ci];
+    if(!ch)return rows;
+    const d=document.createElement("div");d.innerHTML=ch.html||"";
+    const ps=[...d.querySelectorAll("p")];
+    if(pi===null){
+      // For chapter-level edges, show the exact paragraphs where either endpoint occurs.
+      const ids=[e.a,e.b].map(id=>graphData.nodes.find(n=>n.id===id)).filter(Boolean);
+      const terms=ids.flatMap(graphNodeSearchTerms).filter(Boolean);
+      ps.forEach((p,i)=>{
+        const text=(p.innerText||p.textContent||"").trim(),n=normalize(text);
+        if(terms.some(term=>n.includes(term)))rows.push({ci,pi:i,pid:p.dataset.pid||"",chapterName:ch.name||("Capítulo "+(ci+1)),text,reason:"Evidencia de la conexión en el capítulo"});
+      });
+    }else if(ps[pi]){
+      const p=ps[pi];
+      rows.push({ci,pi,pid:p.dataset.pid||"",chapterName:ch.name||("Capítulo "+(ci+1)),text:(p.innerText||p.textContent||"").trim(),reason:"Ambos elementos comparten este párrafo"});
+    }
   }
   return rows;
 }
-function graphNodeParagraphButton(){
-  const n=graphData.nodes.find(x=>x.id===graphSelectedNodeId);if(!n)return;
-  const rows=graphOpenParagraphsForNode(n);
-  if(!rows.length){alert("No encontré párrafos asociados.");return}
-  const msg=rows.slice(0,20).map((r,i)=>`${i+1}. ${state.chapters[r.ci].name} · párrafo ${r.pi+1}`).join("\n");
-  const pick=prompt("Apariciones encontradas:\n\n"+msg+"\n\nEscribí el número para ir al párrafo:");
-  if(pick===null)return;const r=rows[Number(pick)-1];if(!r)return;
-  state.current=r.ci;load();closeGraph();setTimeout(()=>{const ps=[...document.querySelectorAll("#editor > p")];if(ps[r.pi]){selectParagraphById(ps[r.pi].dataset.pid,true);ps[r.pi].scrollIntoView({behavior:"smooth",block:"center"})}},100);
+
+function graphShowEdgeEvidence(e){
+  graphSelectedEdge=e;
+  graphSelectedNodeId=null;
+  const box=$("graphDetail");if(!box)return;
+  const a=graphData.nodes.find(n=>n.id===e.a),b=graphData.nodes.find(n=>n.id===e.b);
+  const rows=graphEdgeEvidence(e);
+  box.hidden=false;
+  box.innerHTML=`<h3>🔗 ${esc(a?.label||e.a)} ↔ ${esc(b?.label||e.b)}</h3>
+    <div><span class="graph-relation-pill">${esc(e.type||"Conexión")}</span> · ${e.source==="custom"?"Conexión confirmada":"Conexión detectada"}</div>
+    <div class="graph-evidence">
+      <b>📍 Evidencia en el manuscrito</b>
+      ${rows.length?graphEvidenceRowsHTML(rows,20):`<div class="graph-evidence-excerpt">No hay un párrafo exacto asociado a esta conexión.</div>`}
+    </div>
+    <div class="graph-detail-actions"><button type="button" onclick="graphCloseDetail()">Cerrar</button></div>`;
 }
+
 window.addEventListener("resize",()=>{if(document.body.classList.contains("graph-open"))drawGraph()});
 const graphCanvasEl=$("graphCanvas");
 graphCanvasEl.addEventListener("pointerdown",graphPointerDown);
