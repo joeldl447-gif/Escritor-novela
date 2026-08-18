@@ -476,6 +476,9 @@ body.night .paragraph-status-done{background:#254234}
 #graphTools[hidden],#graphDetail[hidden],#graphConnectBox[hidden],#graphSuggestions[hidden]{display:none}
 #graphTools input,#graphTools select{min-width:170px;flex:1}
 .graph-node.event{border-left:4px solid #b8862b}
+.graph-node.event{min-width:150px}
+.graph-node.event small{opacity:.8}
+
 .graph-node.object{border-left:4px solid #7b7b7b}
 .graph-node.concept{border-left:4px solid #3f82a8}
 .graph-node.selected{box-shadow:0 0 0 3px #6aa9e8,0 4px 14px #0002}
@@ -963,7 +966,7 @@ body.night .paragraph-status-done{background:#254234}
     <button type="button" onclick="graphSuggestConnections()">🧠 Detectar</button>
   </div>
   <div id="graphTools" hidden>
-    <input id="graphSearchInput" type="search" placeholder="Buscar personaje, lugar, capítulo…" oninput="drawGraph()">
+    <input id="graphSearchInput" type="search" placeholder="Buscar personaje, lugar, capítulo, acontecimiento…" oninput="drawGraph()">
     <select id="graphTypeFilter" onchange="drawGraph()">
       <option value="all">Todos los nodos</option>
       <option value="chapter">📖 Capítulos</option>
@@ -1834,6 +1837,11 @@ function graphNodeMeta(type,id){
   if(type==="chapter"){const c=state.chapters[id];return c?`${chapterWordCount(c)} palabras · ${paragraphCount(c)} párrafos`:"Capítulo"}
   if(type==="character"){const c=state.characters[id];return c?.desc||"Personaje"}
   if(type==="place"){const p=state.places[id];return p?.desc||"Lugar"}
+  if(type==="event"){
+    const m=(state.timeline||[]).find(x=>String(x.id)===String(id));
+    if(m)return `${m.status==="confirmed"?"Confirmado":m.status==="suggested"?"Detectado":"Ignorado"} · ${TIMELINE_KIND_LABELS?.[m.kind]||m.kind||"Acontecimiento"}`;
+    return "Acontecimiento";
+  }
   return GRAPH_TYPES[type]?.meta||"";
 }
 function graphAddNode(nodes,seen,type,id,label,meta){
@@ -1884,10 +1892,37 @@ function buildGraphData(){
       graphAddAutoEdge(edges,ck,add("tag",label,label,"Enlace [[...]]"),"enlace",`cap:${ci}`);
     });
   });
+  // Timeline events are first-class graph nodes. Their exact source is
+  // the chapter + paragraph recorded by the timeline.
+  (state.timeline||[]).forEach((m,mi)=>{
+    if(!m||m.status==="ignored")return;
+    const eid=add("event",String(m.id),m.title||"Acontecimiento",graphNodeMeta("event",String(m.id)));
+    if(Number.isFinite(m.ci)&&state.chapters[m.ci]){
+      const ch=state.chapters[m.ci];
+      const ck=add("chapter",String(m.ci),ch.name,graphNodeMeta("chapter",m.ci));
+      graphAddAutoEdge(edges,eid,ck,"ocurre en",`cap:${m.ci}:p:${Number.isFinite(m.pi)?m.pi:""}`);
+    }
+    (m.characters||[]).forEach(name=>{
+      const ci=(state.characters||[]).findIndex(c=>normalize(c.name||"")===normalize(String(name||"")));
+      if(ci>=0){
+        const ck=add("character",ci,state.characters[ci].name,graphNodeMeta("character",ci));
+        graphAddAutoEdge(edges,eid,ck,"participa en",`cap:${m.ci}:p:${Number.isFinite(m.pi)?m.pi:""}`);
+      }
+    });
+    if(m.place){
+      const pi=(state.places||[]).findIndex(p=>normalize(p.name||"")===normalize(String(m.place||"")));
+      if(pi>=0){
+        const pk=add("place",pi,state.places[pi].name,graphNodeMeta("place",pi));
+        graphAddAutoEdge(edges,eid,pk,"ocurre en",`cap:${m.ci}:p:${Number.isFinite(m.pi)?m.pi:""}`);
+      }
+    }
+  });
+
   // Confirmed custom connections override the automatic graph.
   state.graph.customEdges.forEach(e=>{
     if(!e||!e.a||!e.b)return;
-    const [at,ai]=e.a.split(":"),[bt,bi]=e.b.split(":");
+    const splitNodeId=(value)=>{const i=String(value).indexOf(":");return i<0?[String(value),""]:[String(value).slice(0,i),String(value).slice(i+1)]};
+    const [at,ai]=splitNodeId(e.a),[bt,bi]=splitNodeId(e.b);
     const findLabel=(type,id)=>{
       if(type==="chapter")return state.chapters[Number(id)]?.name||id;
       if(type==="character")return state.characters[Number(id)]?.name||id;
@@ -2082,7 +2117,24 @@ function graphOpenNodeSource(){
   if(n.type==="character"){openLibrary();closeGraph();return}
   if(n.type==="place"){openLibrary();closeGraph();return}
   if(n.type==="event"){
-    const m=state.timeline.find(x=>x.id===n.id.slice(6));if(m){state.current=m.ci||0;load();closeGraph();setTimeout(()=>{const ps=[...document.querySelectorAll("#editor > p")];if(ps[m.pi]){selectParagraphById(ps[m.pi].dataset.pid,true);ps[m.pi].scrollIntoView({behavior:"smooth",block:"center"})}},80)}
+    const eventId=n.id.startsWith("event:")?n.id.slice(6):n.id;
+    const m=(state.timeline||[]).find(x=>String(x.id)===String(eventId));
+    if(m){
+      state.current=Number.isFinite(m.ci)?m.ci:0;
+      load();closeGraph();
+      setTimeout(()=>{
+        const ps=[...document.querySelectorAll("#editor > p")];
+        const p=ps[Number.isFinite(m.pi)?m.pi:-1];
+        if(p){
+          selectParagraphById(p.dataset.pid,true);
+          p.scrollIntoView({behavior:"smooth",block:"center"});
+          p.classList.add("paragraph-jump-highlight");
+          setTimeout(()=>p.classList.remove("paragraph-jump-highlight"),1800);
+        }else{
+          alert("El acontecimiento existe, pero su párrafo de origen ya no está disponible.");
+        }
+      },100);
+    }
   }
 }
 function openGraphSearch(){const x=$("graphTools");x.hidden=!x.hidden;if(!x.hidden)$("graphSearchInput").focus()}
@@ -2155,6 +2207,15 @@ function graphNodeSearchTerms(n){
   }else if(n.type==="place"){
     const p=state.places[Number(n.id.split(":")[1])];
     if(p)terms.push(p.name||"");
+  }else if(n.type==="event"){
+    const id=n.id.startsWith("event:")?n.id.slice(6):n.id;
+    const m=(state.timeline||[]).find(x=>String(x.id)===String(id));
+    if(m){
+      terms.push(m.title||"");
+      terms.push(m.text||"");
+      (m.characters||[]).forEach(x=>terms.push(String(x||"")));
+      terms.push(m.place||"");
+    }
   }else if(n.type==="tag"){
     terms.push(n.label||"");
   }else if(n.type==="object"||n.type==="concept"){
@@ -2180,6 +2241,20 @@ function graphOpenParagraphsForNode(n){
         reason:"Párrafo del capítulo"
       });
     });
+    return rows;
+  }
+
+  if(n.type==="event"){
+    const id=n.id.startsWith("event:")?n.id.slice(6):n.id;
+    const m=(state.timeline||[]).find(x=>String(x.id)===String(id));
+    if(m&&Number.isFinite(m.ci)&&Number.isFinite(m.pi)&&state.chapters[m.ci]){
+      const ch=state.chapters[m.ci],d=document.createElement("div");
+      d.innerHTML=ch.html||"";
+      const p=[...d.querySelectorAll("p")][m.pi];
+      if(p){
+        rows.push({ci:m.ci,pi:m.pi,pid:p.dataset.pid||"",chapterName:String(ch.name||("Capítulo "+(m.ci+1))),text:(p.innerText||p.textContent||"").trim(),reason:"Párrafo de origen del acontecimiento"});
+      }
+    }
     return rows;
   }
 
