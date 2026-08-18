@@ -34,6 +34,7 @@ main{display:flex;max-width:1100px;margin:auto;min-height:calc(100vh - 58px)}
 #noteText{display:none}
 #side.note-editing #noteText{display:block}
 #side.note-editing #selectedLabel{font-weight:700}
+.note-actions{display:flex;gap:8px;flex-wrap:wrap}
 #noteText{width:100%;min-height:180px;border:1px solid #ccc;border-radius:8px;padding:10px;font:15px system-ui;resize:vertical}
 .muted{color:#777;font-size:13px}
 #stats{font-size:12px;color:#777;margin-left:auto}
@@ -989,9 +990,11 @@ body.night .paragraph-status-done{background:#254234}
       <button type="button" id="noteToggle" title="Editar nota del párrafo">✏️</button>
     </div>
     <div id="selectedLabel" class="muted">Seleccioná un párrafo.</div><br>
-    <textarea id="noteText" placeholder="Escribí una nota sobre este párrafo..."></textarea><br><br>
-    <button onclick="saveNote()">Guardar nota</button>
-    <button onclick="clearNote()">Borrar</button>
+    <textarea id="noteText" placeholder="Escribí una nota sobre este párrafo..." aria-label="Nota del párrafo"></textarea>
+    <div class="note-actions">
+      <button type="button" onclick="saveNote()">Guardar nota</button>
+      <button type="button" onclick="clearNote()">Borrar</button>
+    </div>
     <p class="muted">Las notas se mantienen separadas del texto y se incluyen al final del Word exportado.</p>
   </aside>
 </main>
@@ -1083,7 +1086,7 @@ function selectParagraphById(id,openNotes=false){
     <span class="paragraph-stat">${esc(meta.tag||"Sin etiqueta")}</span>
     <span class="paragraph-stat">${meta.status==="review"?"🟡 Para revisar":meta.status==="problem"?"🔴 Problema":meta.status==="done"?"🟢 Revisado":"⚪ Sin estado"}</span>
     ${meta.bookmark?"<span class='paragraph-stat'>📌 Marcado</span>":""}`;
-  if(openNotes)document.body.classList.add("notes-open");
+  if(openNotes){document.body.classList.add("notes-open");$("side").classList.add("note-editing");}
 }
 function bindParagraphs(){
   const ps=ensureParagraphStructure();
@@ -1137,7 +1140,7 @@ function saveNote(){
   if(!paragraphConfirm(`¿Guardar la nota en ${paragraphLabel(selected)}?`))return;
   if(value)ch.notes[selected]=value;else delete ch.notes[selected];
   paragraphMeta(ch)[selected].noteUpdated=Date.now();
-  saveParagraphState();selectParagraphById(selected);
+  saveParagraphState();selectParagraphById(selected);$("side").classList.remove("note-editing");document.body.classList.remove("notes-open");
 }
 function clearNote(){
   if(!selected){alert("Seleccioná un párrafo primero.");return}
@@ -1208,7 +1211,7 @@ function save(){
 function load(){
   $("title").value=state.title;
   $("editor").innerHTML=state.chapters[state.current].html;
-  selected=null;$("noteText").value="";$("selectedLabel").textContent="Seleccioná un párrafo.";
+  selected=null;$("noteText").value="";$("selectedLabel").textContent="Seleccioná un párrafo.";$("side").classList.remove("note-editing");document.body.classList.remove("notes-open");
   ensureParagraphStructure();
   bindParagraphs();stats();renderChapters();
   save();
@@ -1298,8 +1301,11 @@ $("editor").addEventListener("touchend",()=>{
 });
 $("noteToggle").addEventListener("click",()=>{
   if(!selected){alert("Seleccioná un párrafo primero.");return}
+  const side=$("side");
+  side.classList.add("note-editing");
+  document.body.classList.add("notes-open");
   selectParagraphById(selected,true);
-  document.body.classList.toggle("notes-open");
+  setTimeout(()=>$("noteText").focus(),80);
 });
 
 function cmd(x){document.execCommand(x,false,null);$("editor").focus();save()}
@@ -1316,7 +1322,17 @@ function deleteChapter(i){
 }
 function saveNote(){if(selected===null)return;state.chapters[state.current].notes=state.chapters[state.current].notes||{};state.chapters[state.current].notes[selected]=$("noteText").value.trim();localStorage.setItem(KEY,JSON.stringify(state));document.body.classList.remove("notes-open")}
 function clearNote(){if(selected===null)return;delete (state.chapters[state.current].notes||{})[selected];$("noteText").value="";localStorage.setItem(KEY,JSON.stringify(state))}
-function toggleNotes(){document.body.classList.toggle("notes-open")}
+function toggleNotes(){
+  if(!selected){alert("Seleccioná un párrafo primero.");return}
+  const side=$("side");
+  const opening=!side.classList.contains("note-editing");
+  side.classList.toggle("note-editing",opening);
+  document.body.classList.toggle("notes-open",opening);
+  if(opening){
+    selectParagraphById(selected,true);
+    setTimeout(()=>$("noteText").focus(),80);
+  }
+}
 function toggleChapters(){document.body.classList.toggle("chapters-open")}
 function toggleAppMenu(){document.body.classList.remove("chapters-open");$("appMenu").classList.toggle("open");$("appMenuBackdrop").classList.toggle("open")}
 function closeAppMenu(){$("appMenu").classList.remove("open");$("appMenuBackdrop").classList.remove("open")}
